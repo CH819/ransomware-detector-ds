@@ -1,0 +1,115 @@
+read.csv 
+UNIX time in sec, UNIX time in ns, LBA, size
+1606365711,286027575,6055802,4096
+
+write.csv
+UNIX time in sec, UNIX time in ns, LBA, size, Entropy #1, Entropy #2
+1606365710,396368633,6571032,4096,0.32472664320367545,0.259486312315601
+
+
+ While Entropy #1 is calculated in every 4096-byte (4KiB), Entropy #2 is sum of eight entropy that are calculated in every 256-byte.
+
+================================================================================
+RANSAP ML TRAINING DATA SPECIFICATION
+================================================================================
+
+Dataset Source: RanSAP (Ransomware Storage Access Pattern)
+GitHub: https://github.com/manabu-hirano/RanSAP
+
+Files: 
+- ata_read.csv (normal activity - BEFORE ransomware attack)
+- ata_write.csv (ransomware activity - AFTER attack)
+
+================================================================================
+OUTPUT FILES
+================================================================================
+
+utils/data_set/ransap_training.csv    - ML-ready features (CSV format)
+utils/data_set/ransap_features.json   - Same data (JSON format)
+
+================================================================================
+FEATURE COLUMNS (ML Model Input)
+================================================================================
+
+| Column              | Type   | Range      | Description                           |
+|---------------------|--------|------------|---------------------------------------|
+| avg_entropy_1_10    | float  | 1.0-10.0   | File randomness (10=fully encrypted)  |
+| max_entropy_1_10    | float  | 1.0-10.0   | Peak entropy in window                |
+| ops_per_second      | float  | 0+         | I/O operation velocity                |
+| bytes_per_second    | int    | 0+         | Data throughput speed                 |
+| burst_score         | int    | 0-10       | Operation clustering (10=sudden burst)|
+| operation_count     | int    | 0+         | Total I/O operations                  |
+| total_bytes         | int    | 0+         | Total bytes processed                 |
+| risk_score          | float  | 0+         | Heuristic combo score (optional)      |
+| is_ransomware       | binary | 0 or 1     | TARGET LABEL                          |
+
+================================================================================
+LABEL DEFINITIONS
+================================================================================
+
+0 = NORMAL
+    Source: ata_read.csv
+    Disk read operations before ransomware infection
+    Low entropy (~2.0), steady pattern
+
+1 = RANSOMWARE
+    Source: ata_write.csv  
+    Disk write operations during ransomware encryption
+    High entropy (~8-10), burst pattern
+
+================================================================================
+KEY DETECTION PATTERNS
+================================================================================
+
+RANSOMWARE INDICATORS:
+- High entropy (8-10): Encrypted data looks random
+- High burst_score (7-10): Sudden spike in operations
+- High ops_per_second (>5): Fast encryption speed
+
+NORMAL INDICATORS:
+- Low entropy (1-4): Structured, readable data
+- Low burst_score (0-3): Steady, regular access
+- Lower ops_per_second: Normal user activity
+
+================================================================================
+PYTHON USAGE EXAMPLE
+================================================================================
+
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+
+# Load
+df = pd.read_csv('utils/data_set/ransap_training.csv')
+
+# Features (drop target and metadata)
+X = df.drop(['is_ransomware', 'window_start', 'risk_score'], axis=1)
+y = df['is_ransomware']
+
+# Train
+model = RandomForestClassifier()
+model.fit(X, y)
+
+# Predict
+predictions = model.predict(X)
+
+================================================================================
+GENERATING THE DATA
+================================================================================
+
+Run:
+    python3 utils/dataset_processor.py
+
+Requires:
+- utils/data_set/ata_read.csv
+- utils/data_set/ata_write.csv
+
+================================================================================
+NOTES
+================================================================================
+
+- Window size: 10 seconds per sample
+- Entropy scale: 1-10 (converted from raw 0.0-1.0 values)
+- Time features removed: Dataset timestamps don't support off-hours/weekend detection
+- All windows labeled by source file (read=normal, write=ransomware)
+- Entropy #1 only: 4KB block entropy (not using Entropy #2)
+
