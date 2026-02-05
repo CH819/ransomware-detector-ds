@@ -14,11 +14,11 @@ from watchdog.events import FileSystemEventHandler
 # ======================
 # Configuration
 # ======================
-WATCH_PATH = os.environ.get("WATCH_PATH", "/data")
-REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
+WATCH_PATH = os.environ.get("WATCH_PATH", "../utils/test_files")
+REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", 6379))
 STREAM_NAME = "file_events"
-SNAPSHOT_DIR = os.environ.get("SNAPSHOT_DIR", "/snapshots")
+SNAPSHOT_DIR = os.environ.get("SNAPSHOT_DIR", "../utils/snapshots")
 NODE_ID = socket.gethostname()
 
 

@@ -12,8 +12,8 @@ class RecoveryManager:
     def __init__(self, redis_host="localhost", redis_port=6379):
         self.redis_client = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
         self.input_stream = "ransomware_alerts"
-        self.base_snapshot_path = "./snapshots"
-        self.destination_path = "./folder"
+        self.base_snapshot_path = "../utils/snapshots"
+        self.destination_path = "../utils/test_files"
 
         logging.basicConfig(level=logging.INFO, format="%(asctime)s - RECOVERY MANAGER - %(levelname)s - %(message)s\n")
         self.logger = logging.getLogger(__name__)
