@@ -3,12 +3,20 @@ import json
 import logging
 import time
 from datetime import datetime
+import os
+
+
+REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
+REDIS_PORT = int(os.environ.get("REDIS_PORT", 6379))
+STREAM_NAME_FILE_EVENTS = "file_events"
+STREAM_NAME_RANSOMWARE_ALERTS = "ransomware_alerts"
+
 
 class RansomwareDetector:
-    def __init__(self, redis_host='localhost', redis_port=6379):
+    def __init__(self, redis_host=REDIS_HOST, redis_port=REDIS_PORT):
         self.redis_client = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
-        self.input_stream  = "file_events"
-        self.output_stream = "ransomware_alerts"
+        self.input_stream  = STREAM_NAME_FILE_EVENTS
+        self.output_stream = STREAM_NAME_RANSOMWARE_ALERTS
         self.event_history = {}
         #clean printing
         logging.basicConfig(

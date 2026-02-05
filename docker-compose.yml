@@ -1,0 +1,44 @@
+services:
+  redis:
+    image: redis:6.2-alpine
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 1s
+      timeout: 3s
+      retries: 5
+    command: ["redis-server"]
+    ports:
+      - '6379:6379'
+    networks:
+      - default
+
+  monitoring_agent:
+    image: monitoring_agent:latest
+    volumes:
+      - ./utils:/utils
+    depends_on:
+        - redis
+    networks:
+      - default
+
+  detection_engine:
+    image: detection_engine:latest
+    volumes:
+      - ./utils:/utils
+    depends_on:
+        - redis
+    networks:
+      - default
+
+  recovery_manager:
+    image: recovery_manager:latest
+    volumes:
+      - ./utils:/utils
+    depends_on:
+        - redis
+    networks:
+      - default
+
+networks:
+  default:
+    driver: bridge

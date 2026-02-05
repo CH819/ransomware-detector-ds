@@ -8,12 +8,19 @@ from datetime import datetime
 import redis
 
 
+REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
+REDIS_PORT = int(os.environ.get("REDIS_PORT", 6379))
+STREAM_NAME_RANSOMWARE_ALERTS = "ransomware_alerts"
+SNAPSHOT_DIR = os.environ.get("SNAPSHOT_DIR", "/utils/snapshots")
+DESTINATION_DIR = "/utils/test_files"
+
+
 class RecoveryManager:
-    def __init__(self, redis_host="localhost", redis_port=6379):
+    def __init__(self, redis_host=REDIS_HOST, redis_port=REDIS_PORT):
         self.redis_client = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
-        self.input_stream = "ransomware_alerts"
-        self.base_snapshot_path = "../utils/snapshots"
-        self.destination_path = "../utils/test_files"
+        self.input_stream = STREAM_NAME_RANSOMWARE_ALERTS
+        self.base_snapshot_path = SNAPSHOT_DIR
+        self.destination_path = DESTINATION_DIR
 
         logging.basicConfig(level=logging.INFO, format="%(asctime)s - RECOVERY MANAGER - %(levelname)s - %(message)s\n")
         self.logger = logging.getLogger(__name__)

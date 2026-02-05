@@ -14,11 +14,11 @@ from watchdog.events import FileSystemEventHandler
 # ======================
 # Configuration
 # ======================
-WATCH_PATH = os.environ.get("WATCH_PATH", "../utils/test_files")
-REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
+WATCH_PATH = os.environ.get("WATCH_PATH", "/utils/test_files")
+REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", 6379))
-STREAM_NAME = "file_events"
-SNAPSHOT_DIR = os.environ.get("SNAPSHOT_DIR", "../utils/snapshots")
+STREAM_NAME_FILE_EVENTS = "file_events"
+SNAPSHOT_DIR = os.environ.get("SNAPSHOT_DIR", "/utils/snapshots")
 NODE_ID = socket.gethostname()
 
 
@@ -86,7 +86,7 @@ class FileMonitorHandler(FileSystemEventHandler):
             "backup_version_id": latest_snapshot_id(),
         }
 
-        self.redis.xadd(STREAM_NAME, event)
+        self.redis.xadd(STREAM_NAME_FILE_EVENTS, event)
         print(f"[MONITOR] {event_type} -> {file_path}")
 
     def on_modified(self, event):
