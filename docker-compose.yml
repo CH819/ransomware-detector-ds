@@ -14,6 +14,8 @@ services:
 
   monitoring_agent:
     image: monitoring_agent:latest
+    environment:
+      - PYTHONUNBUFFERED=1
     volumes:
       - ./utils:/utils
     depends_on:
@@ -23,6 +25,8 @@ services:
 
   detection_engine:
     image: detection_engine:latest
+    environment:
+      - PYTHONUNBUFFERED=1
     volumes:
       - ./utils:/utils
     depends_on:
@@ -32,6 +36,8 @@ services:
 
   recovery_manager:
     image: recovery_manager:latest
+    environment:
+      - PYTHONUNBUFFERED=1
     volumes:
       - ./utils:/utils
     depends_on:
