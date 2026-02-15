@@ -5,6 +5,13 @@
 	import DataTableCheckbox from '$lib/components/ui/data-table/data-table-checkbox.svelte'
 	import Table from './table.svelte'
 	import { Button } from '$lib/components/ui/button'
+	import { createQuery } from '@tanstack/svelte-query'
+	import * as api from '$lib/api'
+
+	const nodes = createQuery(() => ({
+		queryKey: ['nodes'],
+		queryFn: async () => (await api.nodes.get()).data
+	}))
 
 	export const data: Node[] = [
 		{
@@ -226,5 +233,13 @@
 	<div class="flex flex-col gap-4">
 		<h1 class="text-2xl font-semibold">Nodes</h1>
 		<Table {columns} {data} />
+
+		{#if nodes.isPending}
+			<p>Loading...</p>
+		{:else if nodes.isError}
+			<p>Error</p>
+		{:else if nodes.isSuccess}
+			{JSON.stringify(nodes.data)}
+		{/if}
 	</div>
 </div>

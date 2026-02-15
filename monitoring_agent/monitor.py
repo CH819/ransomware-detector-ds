@@ -9,6 +9,9 @@ import redis
 import psutil
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 # ======================
@@ -107,11 +110,7 @@ def main():
     print(f"[MONITOR] Starting on node {NODE_ID}")
     print(f"[MONITOR] Watching path: {WATCH_PATH}")
 
-    redis_client = redis.Redis(
-        host=REDIS_HOST,
-        port=REDIS_PORT,
-        decode_responses=True
-    )
+    redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
     handler = FileMonitorHandler(redis_client)
     observer = Observer()

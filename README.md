@@ -12,7 +12,7 @@ cd ../detection_engine
 docker build . -t detection_engine
 
 cd ../recovery_manager
-docker build . -t monitoring_agent
+docker build . -t recovery_manager
 ```
 
 * Then run

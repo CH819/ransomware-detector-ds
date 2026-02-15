@@ -1,5 +1,4 @@
 import redis
-import json
 import logging
 import time
 import os
@@ -45,7 +44,7 @@ class Gateway:
         
         logging.basicConfig(
             level=logging.INFO,
-            format='%(asctime)s - GATEWAY - %(levelname)s - %(message)s'
+            format="%(asctime)s - GATEWAY - %(levelname)s - %(message)s",
         )
         self.logger = logging.getLogger(__name__)
         

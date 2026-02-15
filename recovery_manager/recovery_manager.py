@@ -1,10 +1,24 @@
 import logging
 import os
-
+import shutil
+import time
+from datetime import datetime
+from dotenv import load_dotenv
+import redis
 import boto3
 from botocore.client import Config
 from flask import Flask, request, jsonify
 
+
+load_dotenv()
+
+
+REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
+REDIS_PORT = int(os.environ.get("REDIS_PORT", 6379))
+STREAM_NAME_RANSOMWARE_ALERTS = "ransomware_alerts"
+SNAPSHOT_DIR = os.environ.get("SNAPSHOT_DIR", "/utils/snapshots")
+DESTINATION_DIR = os.environ.get("WATCH_PATH", "/utils/test_files")
+TEMP_DIR = "../utils/tmp"
 S3_ENDPOINT = os.environ.get("S3_ENDPOINT", "http://localhost:9333")
 S3_BUCKET = os.environ.get("S3_BUCKET", "files")
 S3_ACCESS_KEY = os.environ.get("S3_ACCESS_KEY")
@@ -65,9 +79,6 @@ def get_most_recent_clean_snapshot_name(node_id, infected_backup_id):
     except Exception as e:
         logger.error(f"Failed to retrieve snapshot: {e}")
         return None
-
-
-# TODO: remove infected backups
 
 
 @app.route("/recover", methods=["POST"])
