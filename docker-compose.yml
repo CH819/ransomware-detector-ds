@@ -44,6 +44,81 @@ services:
         - redis
     networks:
       - default
+  
+  master:
+    image: chrislusf/seaweedfs
+    ports:
+      - "9333:9333"
+      - "19333:19333"
+    volumes:
+      - master_data:/data
+    command: "master -ip=master -mdir=/data"
+
+  volume1:
+    image: chrislusf/seaweedfs
+    ports:
+      - "8081:8080"
+      - "18081:18080"
+    command: 'volume -mserver="master:9333" -port=8080 -ip=volume1 -dir=/data'
+    volumes:
+      - vol1_data:/data
+    depends_on:
+      - master
+
+  volume2:
+    image: chrislusf/seaweedfs
+    ports:
+      - "8082:8080"
+      - "18082:18080"
+    command: 'volume -mserver="master:9333" -port=8080 -ip=volume2 -dir=/data'
+    volumes:
+      - vol2_data:/data
+    depends_on:
+      - master
+
+  filer:
+    image: chrislusf/seaweedfs
+    ports:
+      - "8888:8888"
+      - "18888:18888"
+    command: 'filer -master="master:9333" -defaultReplicaPlacement=001'
+    volumes:
+      - filer_data:/data
+    depends_on:
+      - master
+      - volume1
+      - volume2
+  
+  s3:
+    image: chrislusf/seaweedfs
+    ports: 
+      - "8333:8333"
+    command: 's3 -filer="filer:8888"'
+    depends_on:
+      - filer
+
+  # This container automates the access key and bucket creation
+  setup:
+    image: chrislusf/seaweedfs
+    entrypoint: /bin/sh
+    user: root
+    env_file: .env
+    command: >
+      -c "
+      echo 'Waiting for Filer service...' &&
+      sleep 5;
+      echo \"s3.configure -user=admin -access_key=$${S3_ACCESS_KEY} -secret_key=$${S3_SECRET_KEY}\" | weed shell -master=master:9333;
+      echo \"s3.bucket.create -name=$${S3_BUCKET}\" | weed shell -master=master:9333;
+      echo 'S3 setup complete.'
+      "
+    depends_on:
+      - filer
+  
+volumes:
+  master_data:
+  vol1_data:
+  vol2_data:
+  filer_data:
 
 networks:
   default:
