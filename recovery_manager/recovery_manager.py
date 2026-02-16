@@ -6,21 +6,39 @@ import time
 from datetime import datetime
 
 import redis
+import boto3
+from botocore.client import Config
 
 
 REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", 6379))
 STREAM_NAME_RANSOMWARE_ALERTS = "ransomware_alerts"
 SNAPSHOT_DIR = os.environ.get("SNAPSHOT_DIR", "/utils/snapshots")
-DESTINATION_DIR = "/utils/test_files"
+DESTINATION_DIR = os.environ.get("WATCH_PATH", "/utils/test_files")
+TEMP_DIR = "../utils/tmp"
+S3_ENDPOINT = os.environ.get("S3_ENDPOINT", "http://localhost:9333")
+S3_BUCKET = os.environ.get("S3_BUCKET", "files")
+S3_ACCESS_KEY = os.environ.get("S3_ACCESS_KEY")
+S3_SECRET_KEY = os.environ.get("S3_SECRET_KEY")
 
 
 class RecoveryManager:
     def __init__(self, redis_host=REDIS_HOST, redis_port=REDIS_PORT):
-        self.redis_client = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
+        self.redis_client = redis.Redis(
+            host=redis_host, port=redis_port, decode_responses=True
+        )
+        self.s3_client = boto3.client(
+            "s3",
+            aws_access_key_id=S3_ACCESS_KEY,
+            aws_secret_access_key=S3_SECRET_KEY,
+            endpoint_url=S3_ENDPOINT,
+            config=Config(signature_version="s3v4"),
+            region_name="us-east-1",
+        )
         self.input_stream = STREAM_NAME_RANSOMWARE_ALERTS
         self.base_snapshot_path = SNAPSHOT_DIR
         self.destination_path = DESTINATION_DIR
+        self.temp_path = TEMP_DIR
 
         logging.basicConfig(level=logging.INFO, format="%(asctime)s - RECOVERY MANAGER - %(levelname)s - %(message)s\n")
         self.logger = logging.getLogger(__name__)
@@ -28,20 +46,60 @@ class RecoveryManager:
     def get_most_recent_snapshot_id(self, alert):
         return alert["backup_version_id"]
 
-    def recover_snapshot(self, snapshot_id):
-        snapshot_path = os.path.join(self.base_snapshot_path, snapshot_id)
+    def recover_snapshot(self, node_id, snapshot_id):
+        filename = f"/{node_id}/{snapshot_id}"
+        zip_filepath = os.path.join(self.temp_path, snapshot_id + ".zip")
+        destination_path = os.path.join(self.destination_path, node_id)
 
-        if os.path.exists(self.destination_path):
-            shutil.rmtree(self.destination_path)
+        try:
+            self.logger.info(f"Recovering snapshot {snapshot_id}...")
+            self.s3_client.download_file(S3_BUCKET, filename, zip_filepath)
 
-        shutil.copytree(snapshot_path, self.destination_path)
+            if os.path.exists(destination_path):
+                self.logger.info(
+                    f"Recover {snapshot_id}: removing existing data at {destination_path}..."
+                )
+                shutil.rmtree(self.destination_path)
+            os.makedirs(destination_path, exist_ok=True)
 
-        self.logger.info(f"Snapshot {snapshot_id} recovered")
+            shutil.unpack_archive(zip_filepath, destination_path)
+
+            self.logger.info(f"Snapshot {snapshot_id} recovered")
+        except self.s3_client.exceptions.NoSuchKey:
+            self.logger.error(f"Snapshot not found in S3: {filename}")
+        except Exception as e:
+            self.logger.error(f"Recovery failed: {e}")
+        finally:
+            if os.path.exists(zip_filepath):
+                os.remove(zip_filepath)
+            
+
+    def capture_snapshot(self, node_id):
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        zip_filename = f"snapshot_{node_id}_{timestamp}"
+        zip_filepath = os.path.join(self.temp_path, zip_filename)
+        zip_source = os.path.join(self.destination_path, node_id)
+
+        try:
+            if self.temp_path and not os.path.exists(self.temp_path):
+                os.makedirs(self.temp_path, exist_ok=True)
+
+            zip_res = shutil.make_archive(zip_filepath, "zip", zip_source)
+            self.s3_client.upload_file(zip_res, S3_BUCKET, f"/{node_id}/{zip_filename}")
+        except Exception as e:
+            self.logger.error(f"Failed to create a snapshot for node {node_id}: {e}")
+        finally:
+            zip_res = zip_filepath + ".zip"
+            if os.path.exists(zip_res):
+                os.remove(zip_res)
+            self.logger.info(
+                f"Created a snapshot for node {node_id} with timestamp {timestamp}"
+            )
 
     def run_recovery(self, alert):
         most_recent_clean_snapshot = self.get_most_recent_snapshot_id(alert)
 
-        self.recover_snapshot(most_recent_clean_snapshot)
+        self.recover_snapshot(alert["node_id"], most_recent_clean_snapshot)
 
     def main(self):
         self.logger.info("Recovery manager started, waiting for events...\n")
