@@ -67,6 +67,9 @@ def get_most_recent_clean_snapshot_name(node_id, infected_backup_id):
         return None
 
 
+# TODO: remove infected backups
+
+
 @app.route("/recover", methods=["POST"])
 def recover():
     data = request.get_json()
