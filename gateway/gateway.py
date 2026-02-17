@@ -71,6 +71,18 @@ class Gateway:
         """Check if node can process new files."""
         return self.node_status.get(node_id, NodeStatus.HEALTHY) == NodeStatus.HEALTHY
 
+    def get_node_status(self, node_id: str) -> NodeStatus:
+        """Get node status."""
+        return self.node_status.get(node_id, NodeStatus.HEALTHY)
+
+    def get_all_node_status(self) -> dict[str, NodeStatus]:
+        """Get all node statuses."""
+        return self.node_status
+    
+    def get_nodes_backups(self) -> dict[str, dict]:
+        """Get all node backups."""
+        return self.node_backup_info
+
     def set_node_status(self, node_id: str, status: NodeStatus, reason: str = ""):
         """Update node status."""
         old_status = self.node_status.get(node_id, NodeStatus.HEALTHY)

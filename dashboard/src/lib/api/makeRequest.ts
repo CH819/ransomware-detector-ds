@@ -26,6 +26,7 @@ export default async <T = object>({
 	requestOptions = {}
 }: MakeRequestProps): Promise<MakeRequestResult<T>> => {
 	const searchParams = new URLSearchParams(params)
+	const searchString = searchParams.size > 0 ? '?' + searchParams.toString() : ''
 
 	const headers: Record<string, string> = {
 		...(requestOptions?.headers as Record<string, string>)
@@ -47,7 +48,7 @@ export default async <T = object>({
 	}
 
 	try {
-		const res = await fetch(API_URL + path + '?' + searchParams.toString(), {
+		const res = await fetch(API_URL + path + searchString, {
 			method: requestOptions?.method || 'get',
 			credentials: 'include',
 			...requestOptions,

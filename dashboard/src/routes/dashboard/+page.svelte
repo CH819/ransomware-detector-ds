@@ -13,6 +13,11 @@
 		queryFn: async () => (await api.nodes.get()).data
 	}))
 
+	const nodesBackups = createQuery(() => ({
+		queryKey: ['nodes-backups'],
+		queryFn: async () => (await api.nodes.getBackups()).data
+	}))
+
 	export const data: Node[] = [
 		{
 			id: 1,
@@ -240,6 +245,14 @@
 			<p>Error</p>
 		{:else if nodes.isSuccess}
 			{JSON.stringify(nodes.data)}
+		{/if}
+
+		{#if nodesBackups.isPending}
+			<p>Loading...</p>
+		{:else if nodesBackups.isError}
+			<p>Error</p>
+		{:else if nodesBackups.isSuccess}
+			{JSON.stringify(nodesBackups.data)}
 		{/if}
 	</div>
 </div>

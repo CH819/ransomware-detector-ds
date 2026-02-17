@@ -9,7 +9,7 @@ from cryptography.fernet import Fernet
 class RansomwareSimulator:
     def __init__(self, encryption_key=None):
         # Target folder is in same directory
-        self.target_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_files')
+        self.target_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_files', '1')
         self.key = encryption_key or Fernet.generate_key()
         self.cipher = Fernet(self.key)
         self.encrypted_files = []
