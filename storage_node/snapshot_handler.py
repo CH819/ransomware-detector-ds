@@ -3,6 +3,8 @@ import os
 import shutil
 import datetime
 import uuid
+import threading
+import time
 
 from flask import Flask, jsonify, request
 
@@ -18,6 +20,7 @@ S3_ACCESS_KEY = os.environ.get("S3_ACCESS_KEY")
 S3_SECRET_KEY = os.environ.get("S3_SECRET_KEY")
 NODE_ID = os.environ.get("NODE_ID", f"{uuid.uuid4()}")
 APP_PORT = os.environ.get("APP_PORT", 5001)
+BACKUP_INTERVAL_SECONDS = int(os.environ.get("BACKUP_INTERVAL", 10))
 
 
 logging.basicConfig(
@@ -88,13 +91,19 @@ def recover_snapshot(node_id: str, snapshot_id: str):
             os.remove(zip_filepath)
 
 
+def save_snapshot(interval_seconds: int):
+    while True:
+        try:
+            capture_snapshot(NODE_ID)
+        except Exception as e:
+            logger.error(f"Could not capture snapshot: {e}")
+        time.sleep(interval_seconds)
+
+
 @app.route("/snapshot", methods=["POST"])
 def snapshot():
     snapshot_id = capture_snapshot(NODE_ID)
-
-    return jsonify(
-        {"node_id": NODE_ID, "snapshot_id": snapshot_id, "status": "success"}
-    )
+    return jsonify({"node_id": NODE_ID, "snapshot_id": snapshot_id, "status": "success"})
 
 
 @app.route("/restore", methods=["POST"])
@@ -109,7 +118,6 @@ def restore():
 
     try:
         location = recover_snapshot(node_id, snapshot_id)
-
         return jsonify({
             "status": "success",
             "node_id": node_id,
@@ -123,4 +131,7 @@ def restore():
 
 
 if __name__ == "__main__":
+    backup_thread = threading.Thread(target=save_snapshot, args=(BACKUP_INTERVAL_SECONDS,), daemon=True)
+    backup_thread.start()
+
     app.run(port=APP_PORT)
