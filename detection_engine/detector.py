@@ -51,13 +51,13 @@ class RansomwareDetector:
         
         infected_backup_id = event.get('backup_version_id', 'unknown')
         file_path = event.get('file_path', '')
-        
+
         # Entropy check
         entropy = float(event.get('entropy', 0))
-        if entropy > 7.8:
+        if entropy > 7.0:
             risk_score += 4
             indicators.append("very_high_entropy")
-        elif entropy > 7.0:
+        elif entropy > 6.0:
             risk_score += 2
             indicators.append('high_entropy')
             

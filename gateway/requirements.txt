@@ -5,3 +5,4 @@ psycopg2-binary
 python-jose[cryptography]
 pwdlib[argon2]
 python-multipart
+boto3

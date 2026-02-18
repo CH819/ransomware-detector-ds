@@ -48,6 +48,7 @@
 		"vite-plugin-devtools-json": "^1.0.0"
 	},
 	"dependencies": {
-		"@tanstack/svelte-query": "^6.0.18"
+		"@tanstack/svelte-query": "^6.0.18",
+		"pretty-bytes": "^7.1.0"
 	}
 }

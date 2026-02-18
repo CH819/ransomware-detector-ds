@@ -18,9 +18,10 @@
 	type DataTableProps<TData, TValue> = {
 		data: TData[]
 		columns: ColumnDef<TData, TValue>[]
+		disableSearch?: boolean
 	}
 
-	let { data, columns }: DataTableProps<TData, TValue> = $props()
+	let { data, columns, disableSearch = false }: DataTableProps<TData, TValue> = $props()
 
 	let pagination = $state<PaginationState>({ pageIndex: 0, pageSize: 10 })
 	let sorting = $state<SortingState>([])
@@ -83,19 +84,22 @@
 </script>
 
 <div class="flex flex-col gap-3">
-	<div class="flex items-center">
-		<Input
-			placeholder="Filter nodes..."
-			value={(table.getColumn('name')?.getFilterValue() as string) ?? ''}
-			onchange={(e) => {
-				table.getColumn('name')?.setFilterValue(e.currentTarget.value)
-			}}
-			oninput={(e) => {
-				table.getColumn('name')?.setFilterValue(e.currentTarget.value)
-			}}
-			class="max-w-sm"
-		/>
-	</div>
+	{#if !disableSearch}
+		<div class="flex items-center">
+			<Input
+				placeholder="Filter items..."
+				value={(table.getColumn('id')?.getFilterValue() as string) ?? ''}
+				onchange={(e) => {
+					table.getColumn('id')?.setFilterValue(e.currentTarget.value)
+				}}
+				oninput={(e) => {
+					table.getColumn('id')?.setFilterValue(e.currentTarget.value)
+				}}
+				class="max-w-sm"
+			/>
+		</div>
+	{/if}
+
 	<div class="overflow-hidden rounded-md border">
 		<Table.Root>
 			<Table.Header>

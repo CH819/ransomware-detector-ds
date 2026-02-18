@@ -2,6 +2,8 @@ import redis
 import logging
 import time
 import os
+import boto3
+from botocore.client import Config
 from datetime import datetime
 from enum import Enum
 import requests
@@ -15,15 +17,21 @@ RECOVERY_MANAGER_URL = os.environ.get(
 CLIENT_BASE_URL = os.environ.get("CLIENT_BASE_URL", "http://storage-node:5001")
 
 
+S3_ENDPOINT = os.environ.get("S3_ENDPOINT", "http://localhost:9333")
+S3_BUCKET = os.environ.get("S3_BUCKET", "files")
+S3_ACCESS_KEY = os.environ.get("S3_ACCESS_KEY")
+S3_SECRET_KEY = os.environ.get("S3_SECRET_KEY")
 
 # Stream names
 STREAM_FILE_INFO = "file_info"              # From Monitor
+STREAM_PING = "ping"                        # To Monitor (Heartbeat)
 STREAM_DETECTOR_IN = "detector_in"          # To Detector
 STREAM_DETECTOR_OUT = "detector_out"        # From Detector
 STREAM_BACKUP_CONTROL = "backup_control"    # To Backup Service
 STREAM_ADMIN_ALERTS = "admin_alerts"        # To Admin
 STREAM_ADMIN_COMMANDS = "admin_commands"    # From Admin
-
+STREAM_RECOVERY_REQUESTS = "recovery_requests"
+STREAM_CLIENT_NOTIFY = "client_notify"
 
 class NodeStatus(Enum):
     HEALTHY = "healthy"
@@ -35,7 +43,15 @@ class NodeStatus(Enum):
 class Gateway:
     def __init__(self, redis_host=REDIS_HOST, redis_port=REDIS_PORT):
         self.redis = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
-        
+        self.s3_client = boto3.client(
+            "s3",
+            aws_access_key_id=S3_ACCESS_KEY,
+            aws_secret_access_key=S3_SECRET_KEY,
+            endpoint_url=S3_ENDPOINT,
+            config=Config(signature_version="s3v4"),
+            region_name="us-east-1",
+        )
+
         # Node state
         self.node_status = {}           # node_id -> NodeStatus
         self.node_events = {}           # node_id -> list of recent events
@@ -80,8 +96,36 @@ class Gateway:
         return self.node_status
     
     def get_nodes_backups(self) -> dict[str, dict]:
-        """Get all node backups."""
+        """Get all node backup data."""
         return self.node_backup_info
+
+    def get_node_snapshots(self, node_id: str) -> dict[str, dict]:
+        """Get node snapshots."""
+        infected_backup_id = self.node_backup_info.get(node_id, {}).get("infected_backup_id")
+        if infected_backup_id == "none":
+            infected_backup_id = None
+        infected_backup_time = self._get_timestamp_from_backup_id(infected_backup_id) if infected_backup_id else None
+        snapshots = self.s3_client.list_objects_v2(Bucket=S3_BUCKET, Prefix=f"/{node_id}")
+        res = []
+
+        for obj in snapshots.get("Contents", []):
+            snapshot_id = obj["Key"].split("/")[-1]
+            snapshot_time = self._get_timestamp_from_backup_id(snapshot_id)
+            if infected_backup_id and snapshot_time >= infected_backup_time:
+                break
+
+            res.append({
+                "id": snapshot_id,
+                "name": "_".join(snapshot_id.split("_")[0:-1]),
+                "timestamp": snapshot_time,
+                "size": obj["Size"]
+            })
+
+        return {
+            "snapshots": res,
+            "infected_backup_id": infected_backup_id,
+            "infected_backup_time": infected_backup_time
+        }
 
     def set_node_status(self, node_id: str, status: NodeStatus, reason: str = ""):
         """Update node status."""
@@ -103,6 +147,15 @@ class Gateway:
     # =========================================================================
     # MESSAGE HANDLERS
     # =========================================================================
+
+    def handle_ping(self, event: dict):
+        """Receive ping from Monitor. Update node status."""
+        event_type = event.get("event_type")
+        node_id = event.get("node_id")
+
+        if event_type == "ONLINE" and node_id not in self.node_status:
+            self.set_node_status(node_id, NodeStatus.HEALTHY, "online_heartbeat")
+            return {"status": "online_ack", "node_id": node_id}
 
     def handle_monitor_event(self, event: dict):
         """Receive file from Monitor. Filter if node not HEALTHY."""
@@ -226,6 +279,39 @@ class Gateway:
             
         return {"error": "unknown_command"}
 
+    def handle_recovery_response(self, response: dict):
+        """Recovery complete. Reset node to HEALTHY."""
+        node_id = response.get("node_id")
+        backup_location = response.get("backup_location")
+        
+        self.logger.info(f"Recovery complete for [{node_id}]: {backup_location}")
+        
+        # Notify client
+        self.redis.xadd(STREAM_CLIENT_NOTIFY, {
+            "notification_type": "RECOVERY_INFO",
+            "node_id": node_id,
+            "backup_location": backup_location,
+            "files_to_restore": response.get("files_to_restore", []),
+            "timestamp": datetime.utcnow().isoformat() + "Z"
+        })
+        
+        # Reset to HEALTHY
+        self.reset_node(node_id, "recovery_complete")
+        
+        return {"status": "complete"}
+
+    def recover_node(self, node_id: str, snapshot_id: str):
+        """Recover node from snapshot."""
+        self.set_node_status(node_id, NodeStatus.RECOVERING, "recovery_started")
+        self.redis.xadd(STREAM_RECOVERY_REQUESTS, {
+            "command": "RECOVER",
+            "node_id": node_id,
+            "backup_version_id": snapshot_id,
+            "timestamp": datetime.utcnow().isoformat() + "Z"
+        })
+        self.pending_backups.discard(node_id)
+        return {"status": "recovery_requested"}
+
     # =========================================================================
     # HELPERS
     # =========================================================================
@@ -248,6 +334,9 @@ class Gateway:
             "timestamp": datetime.utcnow().isoformat() + "Z"
         })
 
+    def _get_timestamp_from_backup_id(self, backup_id: str):
+        return datetime.fromtimestamp(int(backup_id.split("_")[-1]))
+
     # =========================================================================
     # MAIN LOOP
     # =========================================================================
@@ -256,7 +345,7 @@ class Gateway:
         self.logger.info("Gateway started")
         
         # Non-group streams
-        simple_streams = {STREAM_FILE_INFO: "0"}
+        simple_streams = {STREAM_FILE_INFO: "0", STREAM_PING: "0"}
         
         # Consumer group streams
         group_streams = {
@@ -270,7 +359,11 @@ class Gateway:
                 messages = self.redis.xread(simple_streams, count=10, block=100)
                 for stream, msgs in messages:
                     for msg_id, data in msgs:
-                        if stream == STREAM_FILE_INFO:
+                        if stream == STREAM_PING:
+                            self.handle_ping(data)
+                            self.redis.xdel(STREAM_PING, msg_id)
+                            simple_streams[STREAM_PING] = msg_id
+                        elif stream == STREAM_FILE_INFO:
                             self.handle_monitor_event(data)
                             self.redis.xdel(STREAM_FILE_INFO, msg_id)
                             simple_streams[STREAM_FILE_INFO] = msg_id

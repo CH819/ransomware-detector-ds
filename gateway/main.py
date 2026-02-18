@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -11,15 +12,17 @@ from .lib.gateway import gateway
 from .api import auth, users, nodes
 
 
-# Create tables
-models.Base.metadata.create_all(bind=engine)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Create tables
+    models.Base.metadata.create_all(bind=engine)
+    # Start gateway service
+    task = asyncio.create_task(asyncio.to_thread(gateway.run))
+    yield
+    task.cancel()
 
-app = FastAPI()
 
-
-@app.on_event("startup")
-async def start_gateway():
-    asyncio.create_task(asyncio.to_thread(gateway.run))
+app = FastAPI(lifespan=lifespan)
 
 
 origins = [

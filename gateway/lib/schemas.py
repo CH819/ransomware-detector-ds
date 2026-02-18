@@ -41,3 +41,7 @@ class Node(BaseModel):
     mac_address: str
     os_type: str
     os_version: str
+
+
+class NodeRecover(BaseModel):
+    snapshot_id: str

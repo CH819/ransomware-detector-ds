@@ -15,7 +15,8 @@ load_dotenv()
 
 REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", 6379))
-STREAM_NAME_RANSOMWARE_ALERTS = "ransomware_alerts"
+STREAM_RECOVERY_REQUESTS = "recovery_requests"
+STREAM_RECOVERY_RESPONSES = "recovery_responses"
 SNAPSHOT_DIR = os.environ.get("SNAPSHOT_DIR", "/utils/snapshots")
 DESTINATION_DIR = os.environ.get("WATCH_PATH", "/utils/test_files")
 TEMP_DIR = "../utils/tmp"

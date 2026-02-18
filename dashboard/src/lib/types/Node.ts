@@ -1,8 +1,12 @@
+export enum NodeStatus {
+	HEALTHY = 'healthy',
+	SUSPICIOUS = 'suspicious',
+	ISOLATED = 'isolated',
+	RECOVERING = 'recovering'
+}
+
 export type Node = {
-	id: number
-	name: string
-	ip_address: string
-	status: string
-	created_at: number
-	updated_at: number
+	id: string
+	status: NodeStatus
+	backup: { infected_backup_id: string } | null
 }
