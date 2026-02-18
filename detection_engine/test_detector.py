@@ -7,7 +7,7 @@ def test_detector():
     "Test detector with placeholder events"
     
     # Connect to Redis
-    r = redis.Redis(host='localhost', port=6379, decode_responses=True)
+    r = redis.Redis(host='redis', port=6379, decode_responses=True)
 
     base_time = datetime.now(timezone.utc)
     ts = lambda seconds_offset: (base_time + timedelta(seconds=seconds_offset)).isoformat().replace('+00:00', 'Z')
@@ -100,7 +100,7 @@ def test_detector():
 
 def check_redis_streams():
     "Check what's in Redis streams"
-    r = redis.Redis(host='localhost', port=6379, decode_responses=True)
+    r = redis.Redis(host='redis', port=6379, decode_responses=True)
     
     print("\nRedis Streams Status:")
     print("-" * 30)
@@ -128,7 +128,7 @@ def check_redis_streams():
 
 def clear_redis_streams():
     "Clear all Redis streams"
-    r = redis.Redis(host='localhost', port=6379, decode_responses=True)
+    r = redis.Redis(host='redis', port=6379, decode_responses=True)
     r.delete("file_events")
     r.delete("ransomware_alerts")
     print("Redis streams cleared")
