@@ -13,6 +13,9 @@ docker build . -t detection_engine
 
 cd ../recovery_manager
 docker build . -t recovery_manager
+
+cd ../gateway
+docker build . -t gateway
 ```
 
 * Then run
