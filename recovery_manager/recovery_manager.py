@@ -52,7 +52,7 @@ def get_most_recent_clean_snapshot_name(node_id, infected_backup_id):
             filename = os.path.basename(key).replace(".zip", "")
             _, snap_node_id, snap_timestamp = filename.split("_")
 
-            if snap_node_id == node_id and snap_timestamp < infected_timestamp:
+            if snap_node_id == node_id and int(snap_timestamp) < int(infected_timestamp):
                 snapshots.append(snap_timestamp)
 
         if not snapshots:

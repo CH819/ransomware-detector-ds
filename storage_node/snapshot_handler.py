@@ -42,7 +42,7 @@ s3_client = boto3.client(
 
 
 def capture_snapshot(node_id):
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = int(datetime.datetime.now().timestamp())
     zip_filename = f"snapshot_{node_id}_{timestamp}"
     zip_filepath = os.path.join(TEMP_DIR, zip_filename)
     zip_source = os.path.join(DESTINATION_DIR, node_id)
