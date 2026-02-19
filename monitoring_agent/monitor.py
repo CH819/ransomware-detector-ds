@@ -17,7 +17,9 @@ from watchdog.events import FileSystemEventHandler
 WATCH_PATH = os.environ.get("WATCH_PATH", "/utils/test_files")
 REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", 6379))
-STREAM_NAME_FILE_EVENTS = "file_events"
+# STREAM_NAME_FILE_EVENTS = "file_events"
+STREAM_NAME_FILE_EVENTS = "file_info"
+
 SNAPSHOT_DIR = os.environ.get("SNAPSHOT_DIR", "/utils/snapshots")
 NODE_ID = socket.gethostname()
 
@@ -81,7 +83,7 @@ class FileMonitorHandler(FileSystemEventHandler):
             "node_id": NODE_ID,
             "file_path": file_path,
             "event_type": event_type,
-            "entropy": str(calculate_entropy(file_path)),
+            "entropy": calculate_entropy(file_path),
             "process_name": get_process_name(file_path),
             "backup_version_id": latest_snapshot_id(),
         }
