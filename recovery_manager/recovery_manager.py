@@ -1,14 +1,20 @@
+from datetime import datetime
 import logging
 import os
 
 import boto3
 from botocore.client import Config
 from flask import Flask, request, jsonify
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 S3_ENDPOINT = os.environ.get("S3_ENDPOINT", "http://localhost:9333")
 S3_BUCKET = os.environ.get("S3_BUCKET", "files")
 S3_ACCESS_KEY = os.environ.get("S3_ACCESS_KEY")
 S3_SECRET_KEY = os.environ.get("S3_SECRET_KEY")
+PORT = os.environ.get("RECOVERY_MANAGER_PORT", 6000)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,10 +34,16 @@ s3_client = boto3.client(
 )
 
 
-def get_most_recent_clean_snapshot_name(node_id, infected_backup_id):
+def get_timestamp_from_backup_id(backup_id: str):
+    return datetime.fromtimestamp(int(backup_id.split("_")[-1]))
+
+
+def get_most_recent_clean_snapshot_name(node_id, infected_backup_id: str):
     try:
-        name, _, infected_timestamp = infected_backup_id.split("_")
+        infected_backup_id = infected_backup_id.replace(".zip", "").split("/")[-1]
+        name = infected_backup_id.split("_")[0]
         prefix = f"{node_id}/"
+        infected_timestamp = get_timestamp_from_backup_id(infected_backup_id)
 
         response = s3_client.list_objects_v2(
             Bucket=S3_BUCKET,
@@ -50,10 +62,11 @@ def get_most_recent_clean_snapshot_name(node_id, infected_backup_id):
                 continue
 
             filename = os.path.basename(key).replace(".zip", "")
-            _, snap_node_id, snap_timestamp = filename.split("_")
+            _, snap_node_id, snap_timestamp_string = filename.split("_")
+            snap_timestamp = get_timestamp_from_backup_id(filename)
 
-            if snap_node_id == node_id and int(snap_timestamp) < int(infected_timestamp):
-                snapshots.append(snap_timestamp)
+            if snap_node_id == node_id and snap_timestamp < infected_timestamp:
+                snapshots.append(snap_timestamp_string)
 
         if not snapshots:
             return None
@@ -65,9 +78,6 @@ def get_most_recent_clean_snapshot_name(node_id, infected_backup_id):
     except Exception as e:
         logger.error(f"Failed to retrieve snapshot: {e}")
         return None
-
-
-# TODO: remove infected backups
 
 
 @app.route("/recover", methods=["POST"])
@@ -83,6 +93,7 @@ def recover():
     logger.info(f"Received recovery lookup for node {node_id}")
 
     snapshot_name = get_most_recent_clean_snapshot_name(node_id, infected_backup_id)
+    logger.info(f"Clean snapshot found for node {node_id}: {snapshot_name}")
 
     if not snapshot_name:
         return jsonify({"error": "No clean snapshot found"})
@@ -97,4 +108,4 @@ def recover():
 
 
 if __name__ == "__main__":
-    app.run(port=8000)
+    app.run(port=PORT)

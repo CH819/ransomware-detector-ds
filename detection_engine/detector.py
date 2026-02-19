@@ -4,6 +4,9 @@ import logging
 import time
 import os
 from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
 
 REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", 6379))
@@ -48,13 +51,13 @@ class RansomwareDetector:
         
         infected_backup_id = event.get('backup_version_id', 'unknown')
         file_path = event.get('file_path', '')
-        
+
         # Entropy check
         entropy = float(event.get('entropy', 0))
-        if entropy > 7.8:
+        if entropy > 7.0:
             risk_score += 4
-            indicators.append('very_high_entropy')
-        elif entropy > 7.0:
+            indicators.append("very_high_entropy")
+        elif entropy > 6.0:
             risk_score += 2
             indicators.append('high_entropy')
             
@@ -100,7 +103,9 @@ class RansomwareDetector:
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "decision": decision,
             "risk_score": risk_score,
-            "risk_level": "HIGH" if risk_score >= 7 else ("MEDIUM" if risk_score >= 4 else "LOW"),
+            "risk_level": "HIGH"
+            if risk_score >= 7
+            else ("MEDIUM" if risk_score >= 4 else "LOW"),
             "indicators": ",".join(indicators) if indicators else "none",
             "infected_backup_id": infected_backup_id,
         }
@@ -124,7 +129,7 @@ class RansomwareDetector:
                     count=1,
                     block=5000
                 )
-                
+
                 if not messages:
                     continue
                 
@@ -153,6 +158,7 @@ class RansomwareDetector:
 
 if __name__ == "__main__":
     import sys
+
     detector_id = sys.argv[1] if len(sys.argv) > 1 else None
     detector = RansomwareDetector(detector_id=detector_id)
     detector.run()
