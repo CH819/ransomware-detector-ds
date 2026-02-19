@@ -5,11 +5,12 @@ import datetime
 import uuid
 import threading
 import time
-
-from flask import Flask, jsonify, request
-
 import boto3
+from flask import Flask, jsonify, request
 from botocore.client import Config
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 DESTINATION_DIR = os.environ.get("WATCH_PATH", "/utils/test_files")
@@ -19,7 +20,7 @@ S3_BUCKET = os.environ.get("S3_BUCKET", "files")
 S3_ACCESS_KEY = os.environ.get("S3_ACCESS_KEY")
 S3_SECRET_KEY = os.environ.get("S3_SECRET_KEY")
 NODE_ID = os.environ.get("NODE_ID", f"{uuid.uuid4()}")
-APP_PORT = os.environ.get("APP_PORT", 5001)
+APP_PORT = os.environ.get("STORAGE_NODE_PORT", 8001)
 BACKUP_INTERVAL_SECONDS = int(os.environ.get("BACKUP_INTERVAL", 10))
 
 
@@ -53,15 +54,14 @@ def capture_snapshot(node_id):
         zip_res = shutil.make_archive(zip_filepath, "zip", zip_source)
         s3_client.upload_file(zip_res, S3_BUCKET, f"{node_id}/{zip_filename}.zip")
 
+        logger.info(f"Created a snapshot for node {node_id}")
     except Exception as e:
         logger.error(f"Failed to create a snapshot for node {node_id}: {e}")
-
     finally:
         zip_res = zip_filepath + ".zip"
         if os.path.exists(zip_res):
             os.remove(zip_res)
 
-    logger.info(f"Created a snapshot for node {node_id}")
     return zip_filename
 
 
@@ -103,7 +103,9 @@ def save_snapshot(interval_seconds: int):
 @app.route("/snapshot", methods=["POST"])
 def snapshot():
     snapshot_id = capture_snapshot(NODE_ID)
-    return jsonify({"node_id": NODE_ID, "snapshot_id": snapshot_id, "status": "success"})
+    return jsonify(
+        {"node_id": NODE_ID, "snapshot_id": snapshot_id, "status": "success"}
+    )
 
 
 @app.route("/restore", methods=["POST"])
@@ -118,12 +120,14 @@ def restore():
 
     try:
         location = recover_snapshot(node_id, snapshot_id)
-        return jsonify({
-            "status": "success",
-            "node_id": node_id,
-            "snapshot_id": snapshot_id,
-            "backup_location": location
-        }), 200
+        return jsonify(
+            {
+                "status": "success",
+                "node_id": node_id,
+                "snapshot_id": snapshot_id,
+                "backup_location": location,
+            }
+        ), 200
 
     except Exception as e:
         logger.error(f"Recovery failed: {e}")
@@ -131,7 +135,9 @@ def restore():
 
 
 if __name__ == "__main__":
-    backup_thread = threading.Thread(target=save_snapshot, args=(BACKUP_INTERVAL_SECONDS,), daemon=True)
+    backup_thread = threading.Thread(
+        target=save_snapshot, args=(BACKUP_INTERVAL_SECONDS,), daemon=True
+    )
     backup_thread.start()
 
     app.run(port=APP_PORT)

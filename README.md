@@ -14,6 +14,9 @@ docker build . -t detection_engine
 cd ../recovery_manager
 docker build . -t recovery_manager
 
+cd ../storage_node
+docker build . -t storage_node
+
 cd ../gateway
 docker build . -t gateway
 ```

@@ -1,3 +1,4 @@
+import uuid
 import os
 import time
 import socket
@@ -25,7 +26,7 @@ REDIS_PORT = int(os.environ.get("REDIS_PORT", 6379))
 STREAM_NAME_FILE_INFO = "file_info"
 STREAM_NAME_PING = "ping"
 SNAPSHOT_DIR = os.environ.get("SNAPSHOT_DIR", "/utils/snapshots")
-NODE_ID = socket.gethostname()
+NODE_ID = os.environ.get("NODE_ID", f"{uuid.uuid4()}")
 S3_ENDPOINT = os.environ.get("S3_ENDPOINT", "http://localhost:9333")
 S3_BUCKET = os.environ.get("S3_BUCKET", "files")
 S3_ACCESS_KEY = os.environ.get("S3_ACCESS_KEY")
@@ -94,7 +95,7 @@ class FileMonitorHandler(FileSystemEventHandler):
     def __init__(self, redis_client, s3_client: BaseClient):
         self.redis = redis_client
         self.s3_client = s3_client
-        
+
     def ping_online(self):
         event = {
             "timestamp": datetime.utcnow().isoformat(),
@@ -125,10 +126,12 @@ class FileMonitorHandler(FileSystemEventHandler):
     def on_created(self, event):
         if not event.is_directory:
             self.send_event(event.src_path, "FILE_CREATED")
-            
+
     def latest_snapshot_id(self):
         try:
-            response = self.s3_client.list_objects_v2(Bucket=S3_BUCKET, Prefix=f"/{NODE_ID}")
+            response = self.s3_client.list_objects_v2(
+                Bucket=S3_BUCKET, Prefix=f"/{NODE_ID}"
+            )
             if "Contents" in response:
                 latest = max(response["Contents"], key=lambda x: x["LastModified"])
                 return latest["Key"]

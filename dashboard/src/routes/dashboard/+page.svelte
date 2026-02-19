@@ -1,20 +1,36 @@
 <script lang="ts">
-	import type { Node, NodeStatus } from '$lib/types/Node'
+	import { NodeStatus, type Node } from '$lib/types/Node'
 	import { type ColumnDef } from '@tanstack/table-core'
 	import { renderComponent } from '$lib/components/ui/data-table'
 	import DataTableCheckbox from '$lib/components/ui/data-table/data-table-checkbox.svelte'
 	import { Button } from '$lib/components/ui/button'
 	import { Badge } from '$lib/components/ui/badge'
-	import { createQuery } from '@tanstack/svelte-query'
+	import { createMutation, createQuery } from '@tanstack/svelte-query'
 	import * as api from '$lib/api'
 	import Table from './table.svelte'
 	import TableActions from './table-actions.svelte'
+	import RecoverButton from './recover-button.svelte'
+	import { toast } from 'svelte-sonner'
 
 	const nodes = createQuery(() => ({
 		queryKey: ['nodes'],
 		queryFn: async () => (await api.nodes.get()).data,
 		refetchInterval: 5000
 	}))
+
+	const recover = createMutation(() => ({
+		mutationFn: api.nodes.recover,
+		onSuccess: (_, data) => {
+			toast.success(`Node ${data.id} recovered successfully`)
+		},
+		onError: (error, data) => {
+			toast.error(`Failed to recover node ${data.id}: ${error.message}`)
+		}
+	}))
+
+	const handleRecover = (nodeId: string) => {
+		recover.mutate({ id: nodeId })
+	}
 
 	export const columns: ColumnDef<Node>[] = [
 		{
@@ -55,7 +71,11 @@
 		{
 			id: 'actions',
 			enableHiding: false,
-			cell: ({ row }) => renderComponent(TableActions, { node: row.original })
+			cell: ({ row }) =>
+				renderComponent(RecoverButton, {
+					onclick: () => handleRecover(row.original.id),
+					disabled: row.original.status === NodeStatus.HEALTHY
+				})
 		}
 	]
 </script>
