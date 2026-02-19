@@ -10,16 +10,85 @@ in a distributed ransomware detection system. The Gateway makes all isolation
 and recovery decisions based on Detector analysis results.
 
 Key Responsibilities:
-- Filter: Drop events from nodes already being processed (SUSPICIOUS/ISOLATED/RECOVERING)
+- Elect: Active-passive leader election via Redis SET NX EX
+- Filter: Drop events from nodes already being processed (only active gateway processes)
 - Route: Forward healthy node events to Detector
-- Decide: Set node status (HEALTHY → SUSPICIOUS/ISOLATED → RECOVERING → HEALTHY)
+- Decide: Set node status in Redis (shared state)
 - Coordinate: Manage backup stop, admin alerts, and recovery workflows
-- Store: Maintain infected_backup_id for recovery
+- Failover: Automatic takeover within 10 seconds if active gateway fails
 
+================================================================================
+LEADER ELECTION MECHANISM
+-------------------------
+
+Redis SET NX EX Command:
+- SET: Create or update a key
+- NX (Not eXists): Only succeed if key doesn't exist
+- EX (EXpire): Auto-delete key after N seconds
+
+Gateway Implementation:
+┌─────────────────────────────────────────────────────────┐
+│  Startup                                                │
+│    └─> Try SET gateway:leader <my_id> NX EX 10          │
+│         ├─> Success: Become ACTIVE, start renew loop    │
+│         └─> Fail: Become PASSIVE, start watch loop      │
+│                                                         │
+│  ACTIVE Loop (every 3s):                                │
+│    ├─> Check if still leader (GET gateway:leader)       │
+│    ├─> If yes: EXPIRE gateway:leader 10 (renew)         │
+│    └─> If no: Transition to PASSIVE                     │
+│                                                         │
+│  PASSIVE Loop (every 3s):                               │
+│    ├─> Try SET gateway:leader <my_id> NX EX 10          │
+│    ├─> If success: Transition to ACTIVE                 │
+│    └─> If fail: Remain PASSIVE                          │
+│                                                         │
+│  Shutdown:                                              │
+│    └─> If ACTIVE: DEL gateway:leader (voluntary)        │
+└─────────────────────────────────────────────────────────┘
+
+Failover Scenarios:
+1. Graceful shutdown: Active deletes key, passive takes over immediately
+2. Crash: Key expires after 10s, passive takes over
+3. Network partition: Split-brain prevented by Redis atomicity
 ================================================================================
 
 COMMUNICATION FLOW DIAGRAM
 --------------------------
+
+STEP 0: GATEWAY LEADER ELECTION
+┌─────────┐     Redis SET NX EX       ┌─────────┐
+│Gateway A│ ─────────────────────────>│  Redis  │
+│(startup)│  SET gateway:leader       │         │
+│         │  gateway-A EX 10          │         │
+│         │                           │         │
+│  WINS!  │ ◄─────────────────────────│  OK     │
+│(Active) │                           │         │
+└─────────┘                           └────┬────┘
+                                           │
+┌─────────┐     Redis SET NX EX            │
+│Gateway B│ ──────────────────────────────>│
+│(startup)│  SET gateway:leader            │
+│         │  gateway-B EX 10               │
+│         │                                │
+│  LOSES  │ ◄──────────────────────────────│
+│(Passive)│  (key already exists)          │
+│  Waits  │                                │
+└─────────┘                                │
+     │                                     │
+     │         Key expires after 10s       │
+     │ ◄───────────────────────────────────┘
+     │
+     ▼
+┌─────────┐     Redis SET NX EX
+│Gateway B│ ─────────────────────────> 
+│(retry)  │  SET gateway:leader
+│         │  gateway-B EX 10
+│         │
+│  WINS!  │ ◄─────────────────────────
+│(Active) │  (becomes new leader)
+└─────────┘
+
 
 STEP 1: MONITOR → GATEWAY
 ┌─────────┐     file_info (Redis Stream)       ┌─────────┐
@@ -43,8 +112,8 @@ STEP 3: DETECTOR → GATEWAY                          │
 ┌─────────┐     detector_out (Redis Stream)         │
 │Detector │ ────────────────────────────────────────┘
 │         │  {
-│         │    decision: "ISOLATE",           // or "BACKUP" or "SAFE"
-│         │    infected_backup_id: "v3",      // <-- BACKUP ID OF INFECTED FILE
+│         │    decision: "ISOLATE",          
+│         │    infected_backup_id: "v3",      
 │         │    risk_score: 8,
 │         │    indicators: "high_entropy,suspicious_extension",
 │         │    node_id: "client-1",
@@ -67,7 +136,6 @@ STEP 4B: NOTIFY ADMIN (with infected_backup_id)
         │         │ {                             │       │
         │         │   alert_type: "BACKUP_NEEDED, │       │
         │         │   threat_level: "HIGH",       │       │
-        │         │   infected_backup_id: "v3",   │       │
         │         │   node_id: "client-1",        │       │
         │         │   file_path: "/doc.doc",      │       │
         │         │   risk_score: 8               │       │
@@ -89,13 +157,9 @@ STEP 6: GATEWAY → RECOVERY MANAGER                    │
 │         │  {
 │         │    command: "RECOVER",
 │         │    node_id: "client-1",
-│         │    infected_backup_id: "v3",      // <-- RETRIEVED FROM STORAGE
 │         │    timestamp: "2025-01-13T10:35:01Z"
 │         │  }
 │         │  
-│         │  NOTE: Gateway retrieves infected_backup_id from node_backup_info
-│         │  and passes it to Recovery Manager. Recovery Manager decides 
-│         │  which backup to restore from (e.g., the one before "v3").
 └─────────┘
 
 STEP 7: RECOVERY MANAGER → GATEWAY
@@ -185,7 +249,7 @@ DETAILED COMMUNICATION DESCRIPTION
        "decision": "ISOLATE",                    // "ISOLATE", "BACKUP", or "SAFE"
        "risk_score": 8,
        "indicators": "high_entropy,suspicious_extension",
-       "infected_backup_id": "v20250112-100000", // <-- BACKUP ID OF INFECTED FILE
+       "infected_backup_id": "v20250112-100000", 
        "timestamp": "2025-01-13T10:30:01Z"
    }
    
@@ -193,13 +257,11 @@ DETAILED COMMUNICATION DESCRIPTION
    - If node no longer HEALTHY (race condition): ignore result
    - If "ISOLATE": 
      * Set node_status to ISOLATED
-     * Store infected_backup_id in node_backup_info
      * Add to pending_backups
      * Send STOP_BACKUP to Backup Service
      * Send BACKUP_NEEDED alert to Admin
    - If "BACKUP":
      * Set node_status to SUSPICIOUS
-     * Store infected_backup_id in node_backup_info
      * Add to pending_backups
      * Send BACKUP_NEEDED alert to Admin
    - If "SAFE": no action (node remains HEALTHY)
@@ -230,7 +292,6 @@ DETAILED COMMUNICATION DESCRIPTION
        "file_path": "/home/user/document.doc",
        "threat_level": "HIGH",                   // "HIGH" if ISOLATE, "MEDIUM" if BACKUP
        "risk_score": 8,
-       "infected_backup_id": "v20250112-100000", // <-- FROM DETECTOR, STORED IN GATEWAY
        "timestamp": "2025-01-13T10:30:02Z"
    }
    
@@ -320,79 +381,34 @@ DETAILED COMMUNICATION DESCRIPTION
     - Set node_status[node_id] = NodeStatus.HEALTHY
     - Remove node_id from pending_backups
     - Delete node_backup_info[node_id]
-    - Log: "🔄 Node {node_id} reset to HEALTHY (recovery_complete)"
+    - Log: "Node {node_id} reset to HEALTHY (recovery_complete)"
 
 ================================================================================
 
 GATEWAY INTERNAL STATE MANAGEMENT
 ---------------------------------
 
-The Gateway maintains the following in-memory state (lost on restart):
+The Gateway maintains state in Redis for shared access across active-passive instances:
 
-1. node_status: Dict[str, NodeStatus]
-   - Key: node_id
-   - Value: HEALTHY | SUSPICIOUS | ISOLATED | RECOVERING
+1. gateway:leader (string with TTL)
+   - Value: "gateway-A" or "gateway-B"
+   - Auto-expires after 10 seconds if not renewed
    
-2. node_events: Dict[str, List[Dict]]
-   - Key: node_id
-   - Value: Last 100 events for debugging/audit
+2. gateway:node_status (hash)
+   - Key: node_id, Value: HEALTHY|SUSPICIOUS|ISOLATED|RECOVERING
    
-3. pending_backups: Set[str]
+3. gateway:pending_backups (set)
    - node_ids waiting for admin to initiate backup
    
-4. node_backup_info: Dict[str, Dict]
-   - Key: node_id
-   - Value: {"infected_backup_id": str}
-   - Purpose: Store backup_id when Detector reports ISOLATE/BACKUP
-   - Retrieved when Admin initiates recovery
-   - Cleared when node reset to HEALTHY
+4. gateway:node_backup_info (hash)
+   - Key: node_id, Value: {"infected_backup_id": str}
+   
+5. gateway:events:{node_id} (list, trimmed to 100)
+   - Last 100 events per node for debugging
 
-================================================================================
-
-INFECTED_BACKUP_ID FLOW - GATEWAY AS STORAGE & PASS-THROUGH
------------------------------------------------------------
-
-The Gateway does NOT decide which backup to restore from. It only:
-1. RECEIVES infected_backup_id from Detector
-2. STORES it in node_backup_info[node_id]
-3. PASSES it to Admin (for information)
-4. RETRIEVES and PASSES it to Recovery Manager (when Admin confirms)
-
-┌─────────┐    ┌─────────┐    ┌─────────────────┐    ┌─────────┐    ┌─────────┐
-│ Monitor │───>│ Detector│───>│     Gateway     │───>│  Admin  │───>│ Gateway │
-│         │    │         │    │                 │    │         │    │         │
-│ backup  │    │infected_│    │infected_backup_ │    │infected_│    │infected_│
-│  v3     │    │backup_id│    │id stored in:    │    │backup_id│    │backup_id│
-│         │    │  v3     │    │node_backup_info │    │displayed│    │retrieved│
-└─────────┘    └─────────┘    └─────────────────┘    └─────────┘    └────┬────┘
-                                   │                                      │
-                                   │  node_status: ISOLATED/SUSPICIOUS    │
-                                   │  pending_backups: {node_id}          │
-                                   │  node_backup_info: {node_id: {       │
-                                   │    infected_backup_id: "v3"}}        │
-                                   │                                      ▼
-                                   │                            ┌─────────────┐
-                                   │                            │   Recovery  │
-                                   │                            │   Manager   │
-                                   │                            │             │
-                                   │                            │  Receives:  │
-                                   │                            │infected_    │
-                                   │                            │backup_id v3 │
-                                   │                            │             │
-                                   │                            │  Decides:   │
-                                   │                            │  use v2     │
-                                   │                            │  (before v3)│
-                                   │                            └─────────────┘
-                                   ▼
-                            ┌─────────────┐
-                            │  On reset:  │
-                            │  - status:  │
-                            │    HEALTHY  │
-                            │  - pending: │
-                            │    removed  │
-                            │  - backup:  │
-                            │    cleared  │
-                            └─────────────┘
+Local cache (cleared on failover):
+- _local_node_status_cache: temporary read cache
+- _cache_lock: thread safety for cache access
 
 ================================================================================
 
@@ -427,121 +443,32 @@ Node Status Transitions:
                          │   (reset)   │  client notification)
                          └─────────────┘
 
-State Transition Table:
-
-| From       | Event                    | To         | Action                          |
-|------------|--------------------------|------------|---------------------------------|
-| HEALTHY    | Detector: ISOLATE        | ISOLATED   | Stop backup, alert admin, store |
-|            |                          |            | infected_backup_id              |
-| HEALTHY    | Detector: BACKUP         | SUSPICIOUS | Alert admin, store              |
-|            |                          |            | infected_backup_id              |
-| HEALTHY    | Detector: SAFE           | HEALTHY    | No action                       |
-| SUSPICIOUS | Admin: INITIATE_BACKUP   | RECOVERING | Forward to Recovery Manager     |
-| ISOLATED   | Admin: INITIATE_BACKUP   | RECOVERING | Forward to Recovery Manager     |
-| RECOVERING | Recovery: response       | HEALTHY    | Notify client, clear state      |
-| *          | Monitor: file event      | *          | Drop if not HEALTHY             |
-
-================================================================================
-
-REDIS STREAMS SUMMARY
----------------------
-
-Input Streams (Gateway receives):
-- file_info: From Monitor (file event)
-- detector_out: From Detector (analysis results + infected_backup_id)
-- admin_commands: From Admin (initiate recovery)
-- recovery_responses: From Recovery Manager (recovery status)
-
-Output Streams (Gateway sends):
-- detector_in: To Detector (file events)
-- backup_control: To Backup Service (stop backup commands)
-- admin_alerts: To Admin (backup needed + infected_backup_id)
-- recovery_requests: To Recovery Manager (infected_backup_id)
-- client_notify: To Client (recovery completion)
-
-Consumer Groups (for horizontal scaling):
-- gateway_detector_cg on detector_out
-- gateway_admin_cg on admin_commands  
-- gateway_recovery_cg on recovery_responses
 
 ================================================================================
 
 SCALABILITY FEATURES
 --------------------
 
-1. CONSUMER GROUPS
-   - Multiple Gateway instances can share Detector results
-   - Multiple Gateway instances can share Admin commands
-   - Multiple Gateway instances can share Recovery responses
+1. ACTIVE-PASSIVE LEADER ELECTION
+   - Only one gateway processes events at any time
+   - Passive gateway monitors leader key and auto-failover
+   - 10-second max downtime during failover
+   - Leader renews lock every 3 seconds
+
+2. REDIS-BACKED STATE
+   - All node states persisted in Redis (survives gateway restart)
+   - Shared access between active and passive instances
+   - Atomic operations ensure consistency
+
+3. CONSUMER GROUPS (within active gateway)
+   - Multiple threads can share Detector results
+   - Multiple threads can share Admin commands
    - Redis ensures each message processed exactly once
 
-2. STATE IS IN-MEMORY
-   - node_status, node_events, pending_backups, node_backup_info
-   - Lost on Gateway restart (nodes revert to HEALTHY)
-   - For production: persist to Redis or database
-
-3. FILTERING AT GATEWAY
+4. FILTERING AT GATEWAY
+   - Only active gateway processes events
    - Events from non-HEALTHY nodes dropped immediately
    - Reduces load on Detector
    - Prevents duplicate processing
 
-================================================================================
 
-ERROR HANDLING
---------------
-
-1. Race Condition: Detector result arrives after node already processed
-   - Gateway checks is_node_healthy() before processing
-   - If not healthy, logs warning and ignores result
-
-2. Admin initiates backup but no infected_backup_id stored
-   - node_backup_info.get() returns None
-   - Recovery Manager receives null backup_id
-   - Should validate and return error to Admin
-
-3. Recovery Manager fails to respond
-   - Node remains in RECOVERING state
-   - Admin can send RESET command to force back to HEALTHY
-   - Or implement timeout and retry logic
-
-4. Gateway restarts
-   - All node states lost (revert to HEALTHY)
-   - pending_backups cleared
-   - node_backup_info cleared
-   - Admin may need to re-initiate pending recoveries
-
-================================================================================
-
-                    ┌─────────────┐
-                    │   Monitor   │
-                    │   (x N)     │
-                    └──────┬──────┘
-                           │
-                           ▼
-              ┌────────────────────────┐
-              │  Stream: file_info     │
-              └───────────┬────────────┘
-                          │
-              ┌───────────┼───────────┐
-              ▼           ▼           ▼
-        ┌─────────┐ ┌─────────┐ ┌─────────┐
-        │Gateway 1│ │Gateway 2│ │Gateway 3│  ← Consumer group: gateway_cg
-        │(active) │ │(active) │ │(active) │
-        └────┬────┘ └────┬────┘ └────┬────┘
-             └───────────┼───────────┘
-                         ▼
-              ┌────────────────────────┐
-              │  Stream: detector_in   │
-              └───────────┬────────────┘
-                          │
-              ┌───────────┼───────────┐
-              ▼           ▼           ▼
-        ┌─────────┐ ┌─────────┐ ┌─────────┐
-        │Detector1│ │Detector2│ │Detector3│  ← Consumer group: detectors_cg
-        │(active) │ │(active) │ │(active) │
-        └────┬────┘ └────┬────┘ └────┬────┘
-             └───────────┼───────────┘
-                         ▼
-              ┌────────────────────────┐
-              │  Stream: detector_out  │
-              └────────────────────────┘
