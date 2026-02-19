@@ -2,7 +2,6 @@ import redis
 import logging
 import time
 import os
-import boto3
 import uuid
 import threading
 from typing import Optional
