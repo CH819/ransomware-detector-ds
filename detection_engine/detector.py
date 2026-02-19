@@ -5,7 +5,7 @@ import time
 import os
 from datetime import datetime
 
-REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
+REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", 6379))
 
 STREAM_DETECTOR_IN = "detector_in"

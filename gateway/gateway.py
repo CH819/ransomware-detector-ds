@@ -5,9 +5,17 @@ import time
 import os
 from datetime import datetime
 from enum import Enum
+import requests
 
-REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
+REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", 6379))
+RECOVERY_MANAGER_URL = os.environ.get(
+    "RECOVERY_MANAGER_URL",
+    "http://recovery-manager:8000/recover"
+)
+CLIENT_BASE_URL = os.environ.get("CLIENT_BASE_URL", "http://storage-node:5001")
+
+
 
 # Stream names
 STREAM_FILE_INFO = "file_info"              # From Monitor
@@ -16,9 +24,6 @@ STREAM_DETECTOR_OUT = "detector_out"        # From Detector
 STREAM_BACKUP_CONTROL = "backup_control"    # To Backup Service
 STREAM_ADMIN_ALERTS = "admin_alerts"        # To Admin
 STREAM_ADMIN_COMMANDS = "admin_commands"    # From Admin
-STREAM_RECOVERY_REQUESTS = "recovery_requests"   # To Recovery Manager
-STREAM_RECOVERY_RESPONSES = "recovery_responses" # From Recovery Manager
-STREAM_CLIENT_NOTIFY = "client_notify"      # To Client
 
 
 class NodeStatus(Enum):
@@ -50,7 +55,6 @@ class Gateway:
         groups = [
             (STREAM_DETECTOR_OUT, "gateway_detector_cg"),
             (STREAM_ADMIN_COMMANDS, "gateway_admin_cg"),
-            (STREAM_RECOVERY_RESPONSES, "gateway_recovery_cg")
         ]
         for stream, group in groups:
             try:
@@ -150,53 +154,66 @@ class Gateway:
         """Handle commands from Admin."""
         command = cmd.get("command")
         node_id = cmd.get("node_id")
-        
+
         if command == "INITIATE_BACKUP":
             if node_id not in self.pending_backups:
                 return {"error": "no_backup_pending"}
-            
-            # Retrieve infected_backup_id from storage
+
             infected_backup_id = self.node_backup_info.get(node_id, {}).get("infected_backup_id")
-            
+
             if not infected_backup_id:
-                self.logger.error(f"No backup_id stored for {node_id}")
                 return {"error": "no_backup_id_stored"}
-            
+
             self.set_node_status(node_id, NodeStatus.RECOVERING, "recovery_started")
-            self.redis.xadd(STREAM_RECOVERY_REQUESTS, {
-                "command": "RECOVER",
-                "node_id": node_id,
-                "infected_backup_id": infected_backup_id,
-                "timestamp": datetime.utcnow().isoformat() + "Z"
-            })
-            self.pending_backups.discard(node_id)
-            return {"status": "recovery_requested"}
-            
+
+            try:
+                recovery_response = requests.post(
+                    RECOVERY_MANAGER_URL,
+                    json={
+                        "node_id": node_id,
+                        "infected_backup_id": infected_backup_id,
+                    },
+                    timeout=10
+                )
+
+                if recovery_response.status_code != 200:
+                    self.logger.error("Failed to get snapshot is for node {node_id}")
+
+                rm_data = recovery_response.json()
+
+                if rm_data.get("status") != "success":
+                    self.logger.error("No clean snapshot for node {node_id}")
+
+                snapshot_id = rm_data["snapshot_id"]
+                self.logger.info(f"Clean snapshot found for node {node_id}: {snapshot_id}")
+
+                client_response = requests.post(
+                    f"{CLIENT_BASE_URL}/restore",
+                    json={
+                        "node_id": node_id,
+                        "snapshot_id": snapshot_id,
+                    },
+                    timeout=60
+                )
+
+                if client_response.status_code != 200:
+                    self.set_node_status(node_id, NodeStatus.ISOLATED, "client_restore_failed")
+                    return {"error": "client_restore_failed"}
+
+                self.logger.info(f"Client restore successful for node {node_id}")
+
+                self.reset_node(node_id, "recovery_complete")
+                self.pending_backups.discard(node_id)
+
+            except requests.RequestException as e:
+                self.logger.error(f"HTTP communication failed: {e}")
+                self.set_node_status(node_id, NodeStatus.ISOLATED, "http_failure")
+                return {"error": "communication_failure"}
+
         elif command == "RESET":
             return self.reset_node(node_id, "manual_reset")
             
         return {"error": "unknown_command"}
-
-    def handle_recovery_response(self, response: dict):
-        """Recovery complete. Reset node to HEALTHY."""
-        node_id = response.get("node_id")
-        backup_location = response.get("backup_location")
-        
-        self.logger.info(f"Recovery complete for [{node_id}]: {backup_location}")
-        
-        # Notify client
-        self.redis.xadd(STREAM_CLIENT_NOTIFY, {
-            "notification_type": "RECOVERY_INFO",
-            "node_id": node_id,
-            "backup_location": backup_location,
-            "files_to_restore": response.get("files_to_restore", []),
-            "timestamp": datetime.utcnow().isoformat() + "Z"
-        })
-        
-        # Reset to HEALTHY
-        self.reset_node(node_id, "recovery_complete")
-        
-        return {"status": "complete"}
 
     # =========================================================================
     # HELPERS
@@ -234,7 +251,6 @@ class Gateway:
         group_streams = {
             STREAM_DETECTOR_OUT: "gateway_detector_cg",
             STREAM_ADMIN_COMMANDS: "gateway_admin_cg",
-            STREAM_RECOVERY_RESPONSES: "gateway_recovery_cg",
         }
         
         while True:
@@ -259,8 +275,6 @@ class Gateway:
                                 self.handle_detector_result(data)
                             elif stream == STREAM_ADMIN_COMMANDS:
                                 self.handle_admin_command(data)
-                            elif stream == STREAM_RECOVERY_RESPONSES:
-                                self.handle_recovery_response(data)
                             self.redis.xack(stream, group, msg_id)
                             
             except KeyboardInterrupt:
