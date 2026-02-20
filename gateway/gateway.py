@@ -3,7 +3,9 @@ import logging
 import time
 import os
 import uuid
+import boto3
 import threading
+import json
 from typing import Optional
 from botocore.client import Config
 from datetime import datetime
@@ -73,6 +75,15 @@ class Gateway:
         self.logger = logging.LoggerAdapter(self.logger, {"gateway_id": self.gateway_id})
 
         self._init_consumer_groups()
+
+        self.s3_client = boto3.client(
+        "s3",
+        aws_access_key_id=S3_ACCESS_KEY,
+        aws_secret_access_key=S3_SECRET_KEY,
+        endpoint_url=S3_ENDPOINT,
+        config=Config(signature_version="s3v4"),
+        region_name="us-east-1",
+    )
 
     def _init_consumer_groups(self):
         groups = [
@@ -179,25 +190,18 @@ class Gateway:
         return NodeStatus(status)
 
     def get_all_node_status(self) -> dict[str, NodeStatus]:
-        """Get all node statuses."""
-        return self.node_status
+        """Get all node statuses from Redis."""
+        statuses = self.redis.hgetall("gateway:node_status")
+        return {k: NodeStatus(v) for k, v in statuses.items()}
 
     def get_nodes_backups(self) -> dict[str, dict]:
-        """Get all node backup data."""
-        return self.node_backup_info
+        """Get all node backup data from Redis."""
+        backups = self.redis.hgetall("gateway:node_backup_info")
+        return {k: json.loads(v) for k, v in backups.items()}
 
-    def get_node_snapshots(self, node_id: str) -> dict[str, dict]:
-        """Get node snapshots."""
-        infected_backup_id = self.node_backup_info.get(node_id, {}).get(
-            "infected_backup_id"
-        )
-        if infected_backup_id == "none":
-            infected_backup_id = None
-        infected_backup_time = (
-            self._get_timestamp_from_backup_id(infected_backup_id)
-            if infected_backup_id
-            else None
-        )
+    def get_node_snapshots(self, node_id: str) -> list[dict]:
+        """Get node snapshots from S3."""
+        # Note: You'll need to initialize s3_client in __init__ for this to work
         snapshots = self.s3_client.list_objects_v2(
             Bucket=S3_BUCKET, Prefix=f"/{node_id}"
         )
@@ -205,24 +209,16 @@ class Gateway:
 
         for obj in snapshots.get("Contents", []):
             snapshot_id = obj["Key"].split("/")[-1]
-            snapshot_time = self._get_timestamp_from_backup_id(snapshot_id)
-            if infected_backup_id and snapshot_time >= infected_backup_time:
-                break
-
+            
             res.append(
                 {
                     "id": snapshot_id,
                     "name": "_".join(snapshot_id.split("_")[0:-1]),
-                    "timestamp": snapshot_time,
                     "size": obj["Size"],
                 }
             )
 
-        return {
-            "snapshots": res,
-            "infected_backup_id": infected_backup_id,
-            "infected_backup_time": infected_backup_time,
-        }
+        return res
 
     def set_node_status(self, node_id: str, status: NodeStatus, reason: str = ""):
         """Update node status in Redis."""
@@ -268,9 +264,12 @@ class Gateway:
         node_id = event.get("node_id")
 
         if event_type == "ONLINE":
-            current_status = self.get_node_status(node_id)
-            if current_status == NodeStatus.HEALTHY and node_id not in self.get_all_node_status():
+            # Check if this is a new node (no status in Redis yet)
+            existing_status = self.redis.hget("gateway:node_status", node_id)
+            if existing_status is None:
                 self.logger.info(f"New node detected: {node_id}")
+                # Initialize as HEALTHY
+                self.set_node_status(node_id, NodeStatus.HEALTHY, "first_online")
             return {"status": "online_ack", "node_id": node_id}
 
     def handle_monitor_event(self, event: dict):
