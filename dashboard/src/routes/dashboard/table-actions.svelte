@@ -21,7 +21,7 @@
 	let open = $state(false)
 
 	const recoverSnapshot = createMutation(() => ({
-		mutationFn: async (snapshotId: string) => await api.nodes.recover({ id: node.id, snapshotId }),
+		mutationFn: async (_snapshotId: string) => await api.nodes.recover({ id: node.id }),
 		onSuccess: () => {
 			open = false
 		}

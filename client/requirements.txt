@@ -1,0 +1,7 @@
+boto3
+redis
+psutil
+watchdog
+flask
+python-dotenv
+waitress

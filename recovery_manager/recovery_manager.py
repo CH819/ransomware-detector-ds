@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import os
 
@@ -35,15 +35,28 @@ s3_client = boto3.client(
 
 
 def get_timestamp_from_backup_id(backup_id: str):
-    return datetime.fromtimestamp(int(backup_id.split("_")[-1]))
+    return datetime.fromtimestamp(int(backup_id.split("_")[-1]), tz=timezone.utc)
 
 
-def get_most_recent_clean_snapshot_name(node_id, infected_backup_id: str):
+def get_most_recent_clean_snapshot_name(node_id: str, infection_timestamp_str: str):
     try:
-        infected_backup_id = infected_backup_id.replace(".zip", "").split("/")[-1]
-        name = infected_backup_id.split("_")[0]
         prefix = f"{node_id}/"
-        infected_timestamp = get_timestamp_from_backup_id(infected_backup_id)
+        limit_timestamp = None
+
+        if infection_timestamp_str:
+            # Format: 2026-02-21T03:53:16.123456Z or 2026-02-21T03:53:16Z
+            try:
+                limit_timestamp = datetime.fromisoformat(
+                    infection_timestamp_str.replace("Z", "+00:00")
+                )
+            except ValueError:
+                logger.error(
+                    f"Invalid infection_timestamp format: {infection_timestamp_str}"
+                )
+
+        if not limit_timestamp:
+            logger.error("No infection_timestamp provided")
+            return None
 
         response = s3_client.list_objects_v2(
             Bucket=S3_BUCKET,
@@ -65,15 +78,15 @@ def get_most_recent_clean_snapshot_name(node_id, infected_backup_id: str):
             _, snap_node_id, snap_timestamp_string = filename.split("_")
             snap_timestamp = get_timestamp_from_backup_id(filename)
 
-            if snap_node_id == node_id and snap_timestamp < infected_timestamp:
-                snapshots.append(snap_timestamp_string)
+            if snap_node_id == node_id and snap_timestamp < limit_timestamp:
+                snapshots.append((snap_timestamp, filename))
 
         if not snapshots:
             return None
 
-        clean_timestamp = max(snapshots)
-        clean_snapshot_name = f"{name}_{node_id}_{clean_timestamp}"
-        return clean_snapshot_name
+        # Sort by timestamp descending and take the first one
+        snapshots.sort(key=lambda x: x[0], reverse=True)
+        return snapshots[0][1]
 
     except Exception as e:
         logger.error(f"Failed to retrieve snapshot: {e}")
@@ -84,19 +97,19 @@ def get_most_recent_clean_snapshot_name(node_id, infected_backup_id: str):
 def recover():
     data = request.get_json()
 
-    if not data or "node_id" not in data or "infected_backup_id" not in data:
+    if not data or "node_id" not in data or "infection_timestamp" not in data:
         return jsonify({"error": "Invalid request"}), 400
 
     node_id = data["node_id"]
-    infected_backup_id = data["infected_backup_id"]
+    infection_timestamp = data["infection_timestamp"]
 
     logger.info(f"Received recovery lookup for node {node_id}")
 
-    snapshot_name = get_most_recent_clean_snapshot_name(node_id, infected_backup_id)
-    logger.info(f"Clean snapshot found for node {node_id}: {snapshot_name}")
+    snapshot_name = get_most_recent_clean_snapshot_name(node_id, infection_timestamp)
 
     if not snapshot_name:
         return jsonify({"error": "No clean snapshot found"})
+    logger.info(f"Clean snapshot found for node {node_id}: {snapshot_name}")
 
     return jsonify(
         {
@@ -108,4 +121,6 @@ def recover():
 
 
 if __name__ == "__main__":
-    app.run(port=PORT)
+    from waitress import serve
+
+    serve(app, host="0.0.0.0", port=PORT)

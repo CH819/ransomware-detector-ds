@@ -15,10 +15,18 @@ async def get_nodes(
 ):
     nodes = gateway.get_all_node_status()
     backups = gateway.get_nodes_backups()
+    infection_timestamps = gateway.get_nodes_infection_timestamps()
     res = []
 
     for id, status in nodes.items():
-        res.append({"id": id, "status": status, "backup": backups.get(id)})
+        res.append(
+            {
+                "id": id,
+                "status": status,
+                "backup": backups.get(id),
+                "infection_timestamp": infection_timestamps.get(id),
+            }
+        )
 
     return res
 

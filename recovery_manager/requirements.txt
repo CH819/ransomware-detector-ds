@@ -2,3 +2,4 @@ redis==7.1.0
 dotenv
 boto3
 flask
+waitress
