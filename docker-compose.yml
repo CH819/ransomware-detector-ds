@@ -48,7 +48,7 @@ services:
     depends_on:
       - redis
     deploy:
-      replicas: 1
+      replicas: 2
     networks:
       - default
 
@@ -63,7 +63,7 @@ services:
     depends_on:
       - redis
     deploy:
-      replicas: 1
+      replicas: 2
     networks:
       - default
 
@@ -78,7 +78,7 @@ services:
     depends_on:
       - redis
     deploy:
-      replicas: 1
+      replicas: 2
     networks:
       - default
 
