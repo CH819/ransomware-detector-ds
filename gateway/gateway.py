@@ -22,7 +22,7 @@ REDIS_PORT = int(os.environ.get("REDIS_PORT", 6379))
 RECOVERY_MANAGER_URL = os.environ.get(
     "RECOVERY_MANAGER_URL", "http://recovery-manager:8000/recover"
 )
-CLIENT_BASE_URL = os.environ.get("CLIENT_BASE_URL", "http://storage-node:7001")
+CLIENT_BASE_URL = os.environ.get("CLIENT_BASE_URL", "http://storage-node:7000")
 
 
 S3_ENDPOINT = os.environ.get("S3_ENDPOINT", "http://s3:9333")

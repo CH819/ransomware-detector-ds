@@ -22,53 +22,78 @@ services:
     networks:
       - default
 
-  monitoring_agent:
-    image: monitoring_agent:latest
+  client:
+    image: client:latest
+    build: ./client
     env_file: .env
     environment:
       - PYTHONUNBUFFERED=1
     volumes:
-      - ./utils:/utils
+      - ./nodes:/nodes
     depends_on:
       - redis
+    deploy:
+      replicas: 3
     networks:
       - default
 
   detection_engine:
     image: detection_engine:latest
+    build: ./detection_engine
     env_file: .env
     environment:
       - PYTHONUNBUFFERED=1
     volumes:
-      - ./utils:/utils
+      - ./nodes:/nodes
     depends_on:
       - redis
+    deploy:
+      replicas: 1
     networks:
       - default
 
   recovery_manager:
     image: recovery_manager:latest
+    build: ./recovery_manager
     env_file: .env
     environment:
       - PYTHONUNBUFFERED=1
     volumes:
-      - ./utils:/utils
+      - ./nodes:/nodes
     depends_on:
       - redis
+    deploy:
+      replicas: 1
     networks:
       - default
 
   gateway:
     image: gateway:latest
+    build: ./gateway
     env_file: .env
-    ports:
-      - "8000:8000"
     environment:
       - PYTHONUNBUFFERED=1
     volumes:
-      - ./utils:/utils
+      - ./nodes:/nodes
     depends_on:
       - redis
+    deploy:
+      replicas: 1
+    networks:
+      - default
+
+  load_balancer:
+    image: nginx:latest
+    ports:
+      - "4000:4000"
+      - "6000:6000"
+      - "7000:7000"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - gateway
+      - recovery_manager
+      - client
     networks:
       - default
 

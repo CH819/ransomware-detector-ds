@@ -6,4 +6,4 @@ WORKDIR /gateway
 
 RUN pip install --no-cache-dir -r requirements.txt
 
-CMD ["fastapi", "run", "main.py", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["fastapi", "run", "main.py", "--host", "0.0.0.0", "--port", "4000"]

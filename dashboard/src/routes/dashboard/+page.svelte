@@ -4,14 +4,15 @@
 	import { renderComponent } from '$lib/components/ui/data-table'
 	import DataTableCheckbox from '$lib/components/ui/data-table/data-table-checkbox.svelte'
 	import { Button } from '$lib/components/ui/button'
-	import { Badge } from '$lib/components/ui/badge'
-	import { createMutation, createQuery } from '@tanstack/svelte-query'
+	import { Badge, type BadgeVariant } from '$lib/components/ui/badge'
+	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query'
 	import * as api from '$lib/api'
 	import Table from './table.svelte'
 	import TableActions from './table-actions.svelte'
 	import RecoverButton from './recover-button.svelte'
 	import { toast } from 'svelte-sonner'
 
+	const queryClient = useQueryClient()
 	const nodes = createQuery(() => ({
 		queryKey: ['nodes'],
 		queryFn: async () => (await api.nodes.get()).data,
@@ -20,8 +21,23 @@
 
 	const recover = createMutation(() => ({
 		mutationFn: api.nodes.recover,
+		onMutate: async ({ id }) => {
+			await queryClient.cancelQueries({ queryKey: ['nodes'] })
+			const previousNodes = queryClient.getQueryData<Node[]>(['nodes'])
+			queryClient.setQueryData<Node[]>(['nodes'], (old = []) => {
+				return old.map((node) =>
+					node.id === id ? { ...node, status: NodeStatus.RECOVERING } : node
+				)
+			})
+			return { previousNodes }
+		},
 		onSuccess: (_, data) => {
 			toast.success(`Node ${data.id} recovered successfully`)
+			queryClient.setQueryData<Node[]>(['nodes'], (old = []) => {
+				return old.map((node) =>
+					node.id === data.id ? { ...node, status: NodeStatus.HEALTHY } : node
+				)
+			})
 		},
 		onError: (error, data) => {
 			toast.error(`Failed to recover node ${data.id}: ${error.message}`)
@@ -62,9 +78,27 @@
 			header: 'Status',
 			cell: ({ row }) => {
 				const status = row.getValue('status') as NodeStatus
+				let variant: BadgeVariant = 'default'
+				switch (status) {
+					case NodeStatus.HEALTHY:
+						variant = 'valid'
+						break
+					case NodeStatus.SUSPICIOUS:
+						variant = 'warning'
+						break
+					case NodeStatus.ISOLATED:
+						variant = 'destructive'
+						break
+					case NodeStatus.RECOVERING:
+						variant = 'secondary'
+						break
+					default:
+						break
+				}
+
 				return renderComponent(Badge, {
 					label: status,
-					variant: status === 'healthy' ? 'valid' : 'destructive'
+					variant
 				})
 			}
 		},
@@ -74,7 +108,9 @@
 			cell: ({ row }) =>
 				renderComponent(RecoverButton, {
 					onclick: () => handleRecover(row.original.id),
-					disabled: row.original.status === NodeStatus.HEALTHY
+					disabled:
+						row.original.status === NodeStatus.HEALTHY ||
+						row.original.status === NodeStatus.RECOVERING
 				})
 		}
 	]
