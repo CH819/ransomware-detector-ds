@@ -3,3 +3,4 @@ dotenv
 boto3
 flask
 waitress
+python-json-logger

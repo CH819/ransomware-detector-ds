@@ -8,7 +8,7 @@ import logging
 import threading
 import shutil
 from collections import Counter
-from datetime import datetime as dt
+from pythonjsonlogger import jsonlogger
 
 import boto3
 from botocore.client import Config
@@ -43,13 +43,31 @@ APP_PORT = int(os.environ.get("CLIENT_PORT", 7000))
 BACKUP_INTERVAL_SECONDS = int(os.environ.get("BACKUP_INTERVAL", 10))
 
 CHUNK_SIZE = 65536  # 64 KB
+LOG_FILE = os.environ.get("LOG_FILE", "/logs/client.log")
 
-# Logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - CLIENT - %(levelname)s - %(message)s\n",
-)
+# Logger config
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+file_handler = logging.FileHandler(LOG_FILE)
+file_handler.setLevel(logging.INFO)
+
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+
+formatter = jsonlogger.JsonFormatter(
+    "%(asctime)s %(levelname)s %(name)s %(message)s %(node_id)s"
+)
+
+file_handler.setFormatter(formatter)
+console_handler.setFormatter(formatter)
+
+logger.addHandler(file_handler)
+logger.addHandler(console_handler)
+logger.propagate = False
+
+logger = logging.LoggerAdapter(logger, {"node_id": NODE_ID})
+# ---
 
 app = Flask(__name__)
 

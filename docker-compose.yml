@@ -41,6 +41,7 @@ services:
       - PYTHONUNBUFFERED=1
     volumes:
       - ./nodes:/nodes
+      - ./logs:/logs
     depends_on:
       - redis
       - database
@@ -58,6 +59,7 @@ services:
       - PYTHONUNBUFFERED=1
     volumes:
       - ./nodes:/nodes
+      - ./logs:/logs
     depends_on:
       - database
       - redis
@@ -74,6 +76,7 @@ services:
       - PYTHONUNBUFFERED=1
     volumes:
       - ./nodes:/nodes
+      - ./logs:/logs
     depends_on:
       - redis
       - database
@@ -90,6 +93,7 @@ services:
       - PYTHONUNBUFFERED=1
     volumes:
       - ./nodes:/nodes
+      - ./logs:/logs
     depends_on:
       - redis
       - database

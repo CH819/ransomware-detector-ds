@@ -8,7 +8,7 @@ import threading
 import json
 from typing import Optional
 from botocore.client import Config
-from datetime import datetime
+from pythonjsonlogger import jsonlogger
 from enum import Enum
 import requests
 from dotenv import load_dotenv
@@ -45,6 +45,7 @@ LEADER_KEY = "gateway:leader"
 LEADER_EXPIRY_SECONDS = 10  # Time before failover
 HEARTBEAT_INTERVAL_SECONDS = 3  # How often to renew leadership
 
+LOG_FILE = os.environ.get("LOG_FILE", "/logs/gateway.log")
 
 class NodeStatus(Enum):
     HEALTHY = "healthy"
@@ -74,14 +75,34 @@ class Gateway:
         self._local_node_status_cache = {}
         self._cache_lock = threading.Lock()
 
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s - GATEWAY - %(levelname)s - %(message)s",
-        )
-        self.logger = logging.getLogger(__name__)
+        # Logger config
+        base_logger = logging.getLogger(__name__)
+        base_logger.setLevel(logging.INFO)
+
+        # Prevent duplicate handlers if multiple Gateway instances are created
+        if not base_logger.handlers:
+            file_handler = logging.FileHandler(LOG_FILE)
+            file_handler.setLevel(logging.INFO)
+
+            console_handler = logging.StreamHandler()
+            console_handler.setLevel(logging.INFO)
+
+            formatter = jsonlogger.JsonFormatter(
+                "%(asctime)s %(levelname)s %(name)s %(message)s %(gateway_id)s"
+            )
+
+            file_handler.setFormatter(formatter)
+            console_handler.setFormatter(formatter)
+
+            base_logger.addHandler(file_handler)
+            base_logger.addHandler(console_handler)
+
+            base_logger.propagate = False
+
         self.logger = logging.LoggerAdapter(
-            self.logger, {"gateway_id": self.gateway_id}
+            base_logger, {"gateway_id": self.gateway_id}
         )
+        # ---
 
         self._init_consumer_groups()
 
@@ -128,7 +149,7 @@ class Gateway:
                 self.is_leader = False
                 return False
         except redis.RedisError as e:
-            self.logger.error(f"Redis error during leader election: {e}")
+            self.logger.error(f"Redis error during leader election: {e}", exc_info=True)
             return False
 
     def _renew_leadership(self):
@@ -144,7 +165,7 @@ class Gateway:
                     self.is_leader = False
                     return False
             except redis.RedisError as e:
-                self.logger.error(f"Failed to renew leadership: {e}")
+                self.logger.error(f"Failed to renew leadership: {e}", exc_info=True)
                 self.is_leader = False
                 return False
         return False
@@ -250,7 +271,8 @@ class Gateway:
             },
         )
         self.logger.info(
-            f"Node {node_id}: {old_status.value} -> {status.value} ({reason})"
+            f"Setting node status Node {node_id}: {old_status.value} -> {status.value} ({reason})",
+            extra={"node_id": node_id, "old_status": old_status.value, "new_status": status.value, "reason": reason}
         )
 
     def reset_node(self, node_id: str, reason: str = "recovery_complete"):
@@ -298,7 +320,7 @@ class Gateway:
 
         if not self.is_node_healthy(node_id):
             current = self.get_node_status(node_id).value
-            self.logger.warning(f"DROPPED [{node_id}]: {file_path} (status: {current})")
+            self.logger.warning(f"Dropping monitor event", extra={"node_ide": node_id, "node_status": current, "file_path": file_path})
             return {"status": "dropped", "node_id": node_id, "reason": current}
 
         # Store event history in Redis (not local dict)
@@ -523,7 +545,7 @@ class Gateway:
                     self.redis.delete(LEADER_KEY)
                 break
             except Exception as e:
-                self.logger.error(f"Error: {e}")
+                self.logger.error(f"Error: {e}", exc_info=True)
                 time.sleep(1)
 
         if self.leader_thread:
