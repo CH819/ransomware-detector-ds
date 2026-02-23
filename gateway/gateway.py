@@ -309,7 +309,7 @@ class Gateway:
         # Forward to Detector
         self.redis.xadd(
             STREAM_DETECTOR_IN,
-            {"timestamp": datetime.utcnow().isoformat() + "Z", **event},
+            {"timestamp": int(time.time()), **event},
         )
         self.logger.info(f"[{node_id}] -> Detector: {file_path}")
         return {"status": "forwarded", "node_id": node_id}
@@ -322,7 +322,7 @@ class Gateway:
         node_id = result.get("node_id")
         decision = result.get("decision")
         file_path = result.get("file_path")
-        timestamp = result.get("timestamp", datetime.utcnow().isoformat() + "Z")
+        timestamp = result.get("timestamp", int(time.time()))
 
         if not self.is_node_healthy(node_id):
             self.logger.warning(f"Late result for [{node_id}], ignoring")
@@ -446,7 +446,7 @@ class Gateway:
             {
                 "command": "STOP_BACKUP",
                 "node_id": node_id,
-                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "timestamp": int(time.time()),
             },
         )
 
@@ -459,7 +459,7 @@ class Gateway:
                 "file_path": file_path,
                 "threat_level": level,
                 "risk_score": result.get("risk_score"),
-                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "timestamp": int(time.time()),
                 "gateway_id": self.gateway_id,
             },
         )

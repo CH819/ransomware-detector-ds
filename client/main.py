@@ -131,7 +131,7 @@ class FileMonitorHandler(FileSystemEventHandler):
 
     def ping_online(self):
         event = {
-            "timestamp": dt.utcnow().isoformat(),
+            "timestamp": int(time.time() * 1000),
             "node_id": NODE_ID,
             "event_type": "ONLINE",
         }
@@ -161,7 +161,7 @@ class FileMonitorHandler(FileSystemEventHandler):
 
     def send_event(self, file_path, event_type):
         event = {
-            "timestamp": dt.utcnow().isoformat() + "Z",
+            "timestamp": int(time.time() * 1000),
             "node_id": NODE_ID,
             "file_path": file_path,
             "event_type": event_type,
@@ -207,7 +207,7 @@ class FileMonitorHandler(FileSystemEventHandler):
 # Snapshot Logic
 # ======================
 def capture_snapshot(node_id):
-    timestamp = int(time.time())
+    timestamp = int(time.time() * 1000)
     zip_filename = f"snapshot_{node_id}_{timestamp}"
     zip_filepath = os.path.join(TEMP_DIR, zip_filename)
     zip_source = os.path.join(WATCH_PATH, node_id)

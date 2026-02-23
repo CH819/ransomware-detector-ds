@@ -99,7 +99,7 @@ class RansomwareDetector:
             "detector_id": self.detector_id,
             "node_id": event.get("node_id"),
             "file_path": event.get("file_path"),
-            "timestamp": event.get("timestamp", datetime.utcnow().isoformat() + "Z"),
+            "timestamp": event.get("timestamp", int(time.time() * 1000)),
             "decision": decision,
             "risk_score": risk_score,
             "risk_level": "HIGH"

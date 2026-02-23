@@ -10,6 +10,7 @@ load_dotenv()
 
 DESTINATION_DIR = os.environ.get("WATCH_PATH", "nodes")
 TEMP_DIR = os.environ.get("TEMP_DIR", "tmp")
+os.makedirs(TEMP_DIR, exist_ok=True)
 
 
 class RansomwareSimulator:

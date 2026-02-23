@@ -35,27 +35,17 @@ s3_client = boto3.client(
 
 
 def get_timestamp_from_backup_id(backup_id: str):
-    return datetime.fromtimestamp(int(backup_id.split("_")[-1]), tz=timezone.utc)
+    return int(backup_id.split("_")[-1])
 
 
-def get_most_recent_clean_snapshot_name(node_id: str, infection_timestamp_str: str):
+def get_most_recent_clean_snapshot_name(node_id: str, infection_timestamp: int):
     try:
         prefix = f"{node_id}/"
-        limit_timestamp = None
 
-        if infection_timestamp_str:
-            # Format: 2026-02-21T03:53:16.123456Z or 2026-02-21T03:53:16Z
-            try:
-                limit_timestamp = datetime.fromisoformat(
-                    infection_timestamp_str.replace("Z", "+00:00")
-                )
-            except ValueError:
-                logger.error(
-                    f"Invalid infection_timestamp format: {infection_timestamp_str}"
-                )
-
-        if not limit_timestamp:
-            logger.error("No infection_timestamp provided")
+        try:
+            limit_timestamp = int(infection_timestamp) - 10000
+        except (TypeError, ValueError):
+            logger.error(f"Invalid infection_timestamp: {infection_timestamp}")
             return None
 
         response = s3_client.list_objects_v2(
@@ -76,7 +66,7 @@ def get_most_recent_clean_snapshot_name(node_id: str, infection_timestamp_str: s
 
             filename = os.path.basename(key).replace(".zip", "")
             _, snap_node_id, snap_timestamp_string = filename.split("_")
-            snap_timestamp = get_timestamp_from_backup_id(filename)
+            snap_timestamp = int(snap_timestamp_string)
 
             if snap_node_id == node_id and snap_timestamp < limit_timestamp:
                 snapshots.append((snap_timestamp, filename))
