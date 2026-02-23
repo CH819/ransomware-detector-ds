@@ -71,11 +71,11 @@ class RansomwareDetector:
 
         # Entropy check
         entropy = float(event.get('entropy', 0))
-        if entropy > 7.0:
-            risk_score += 4
+        if entropy >= 7.0:
+            risk_score += 7
             indicators.append("very_high_entropy")
         elif entropy > 6.0:
-            risk_score += 2
+            risk_score += 4
             indicators.append('high_entropy')
             
         # Process check
