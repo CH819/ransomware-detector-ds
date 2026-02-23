@@ -322,6 +322,7 @@ class Gateway:
         node_id = result.get("node_id")
         decision = result.get("decision")
         file_path = result.get("file_path")
+        timestamp = result.get("timestamp", datetime.utcnow().isoformat() + "Z")
 
         if not self.is_node_healthy(node_id):
             self.logger.warning(f"Late result for [{node_id}], ignoring")
@@ -334,7 +335,7 @@ class Gateway:
             self.redis.hsetnx(
                 "gateway:infection_timestamp",
                 node_id,
-                datetime.utcnow().isoformat() + "Z",
+                timestamp,
             )
 
         if decision == "ISOLATE":

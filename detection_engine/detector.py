@@ -1,5 +1,4 @@
 import redis
-import json
 import logging
 import time
 import os
@@ -100,7 +99,7 @@ class RansomwareDetector:
             "detector_id": self.detector_id,
             "node_id": event.get("node_id"),
             "file_path": event.get("file_path"),
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": event.get("timestamp", datetime.utcnow().isoformat() + "Z"),
             "decision": decision,
             "risk_score": risk_score,
             "risk_level": "HIGH"

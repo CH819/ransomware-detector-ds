@@ -161,7 +161,7 @@ class FileMonitorHandler(FileSystemEventHandler):
 
     def send_event(self, file_path, event_type):
         event = {
-            "timestamp": dt.utcnow().isoformat(),
+            "timestamp": dt.utcnow().isoformat() + "Z",
             "node_id": NODE_ID,
             "file_path": file_path,
             "event_type": event_type,
