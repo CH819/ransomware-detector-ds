@@ -22,6 +22,17 @@ services:
     networks:
       - default
 
+  dashboard:
+    image: dashboard:latest
+    build: ./dashboard
+    env_file: .env
+    ports:
+      - "5173:5173"
+    depends_on:
+      - gateway
+    networks:
+      - default
+
   client:
     image: client:latest
     build: ./client
@@ -32,6 +43,8 @@ services:
       - ./nodes:/nodes
     depends_on:
       - redis
+      - database
+      - s3
     deploy:
       replicas: 3
     networks:
@@ -46,6 +59,7 @@ services:
     volumes:
       - ./nodes:/nodes
     depends_on:
+      - database
       - redis
     deploy:
       replicas: 2
@@ -62,6 +76,7 @@ services:
       - ./nodes:/nodes
     depends_on:
       - redis
+      - database
     deploy:
       replicas: 2
     networks:
@@ -77,6 +92,7 @@ services:
       - ./nodes:/nodes
     depends_on:
       - redis
+      - database
     deploy:
       replicas: 2
     networks:
@@ -147,6 +163,9 @@ services:
       - "8333:8333"
     command: 's3 -filer="filer:8888"'
     depends_on:
+      - master
+      - volume1
+      - volume2
       - filer
 
   # This container automates the access key and bucket creation
@@ -159,7 +178,7 @@ services:
       -c "
       echo 'Waiting for Filer service...' &&
       sleep 5;
-      echo \"s3.configure -user=admin -access_key=$${S3_ACCESS_KEY} -secret_key=$${S3_SECRET_KEY}\" | weed shell -master=master:9333;
+      echo \"s3.configure -user=admin -access_key=$${S3_ACCESS_KEY} -secret_key=$${S3_SECRET_KEY}\" --actions Admin,Read,Write -apply | weed shell -master=master:9333;
       echo \"s3.bucket.create -name=$${S3_BUCKET}\" | weed shell -master=master:9333;
       echo 'S3 setup complete.'
       "
