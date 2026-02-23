@@ -1,7 +1,8 @@
 import os
 import json
 import base64
-from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.backends import default_backend
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -21,9 +22,8 @@ def decrypt_files():
         print("decryption_key.json not found")
         return
 
-    # Initialize cipher
+    # Decode key (32 bytes for AES-256)
     key = base64.b64decode(key_data["decryption_key"])
-    cipher = Fernet(key)
 
     # Decrypt each file
     decrypted_count = 0
@@ -37,8 +37,18 @@ def decrypt_files():
             with open(file_path, "rb") as f:
                 encrypted_data = f.read()
 
-            # Decrypt
-            decrypted_data = cipher.decrypt(encrypted_data)
+            # Extract IV (first 16 bytes) and ciphertext
+            iv = encrypted_data[:16]
+            ciphertext = encrypted_data[16:]
+
+            # Create AES-256-CTR cipher for decryption
+            cipher = Cipher(
+                algorithms.AES(key),
+                modes.CTR(iv),
+                backend=default_backend()
+            )
+            decryptor = cipher.decryptor()
+            decrypted_data = decryptor.update(ciphertext) + decryptor.finalize()
 
             # Write back decrypted data
             with open(file_path, "wb") as f:
