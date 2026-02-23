@@ -1,1 +1,54 @@
-this is the unencrypted file
+{
+  "application": {
+    "name": "SecureVault Pro",
+    "version": "2.4.1-beta",
+    "environment": "production",
+    "debug": false,
+    "logLevel": "verbose"
+  },
+  "security": {
+    "encryption": {
+      "algorithm": "AES-256-GCM",
+      "keyRotationDays": 30,
+      "saltLength": 32,
+      "iterations": 100000,
+      "pbkdf2": {
+        "hashFunction": "SHA-384",
+        "derivedKeyLength": 256
+      }
+    },
+    "passwordPolicy": {
+      "minLength": 16,
+      "requireUppercase": true,
+      "requireLowercase": true,
+      "requireNumbers": true,
+      "requireSpecialChars": true,
+      "forbiddenPatterns": ["password", "123", "qwerty", "admin"]
+    },
+    "session": {
+      "timeoutMinutes": 15,
+      "maxConcurrentSessions": 3,
+      "enforceIPBinding": true,
+      "mfaRequired": true
+    }
+  },
+  "database": {
+    "host": "db-cluster-03.internal.securevault.io",
+    "port": 5432,
+    "sslMode": "verify-full",
+    "connectionPool": {
+      "min": 5,
+      "max": 50,
+      "idleTimeoutMs": 30000,
+      "acquireTimeoutMs": 5000
+    },
+    "backup": {
+      "schedule": "0 2 * * *",
+      "retentionDays": 90,
+      "encryptionEnabled": true,
+      "remoteLocations": [
+        "s3://securevault-backups-us-east-1/",
+        "s3://securevault-backups-eu-west-1/"
+      ]
+    }
+  },
