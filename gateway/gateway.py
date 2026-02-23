@@ -54,6 +54,14 @@ class NodeStatus(Enum):
     RECOVERING = "recovering"
 
 
+class IDFilter(logging.Filter):
+    def __init__(self, gateway_id):
+        self.gateway_id = gateway_id
+    def filter(self, record):
+        record.gateway_id = self.gateway_id
+        return True
+
+
 class Gateway:
     def __init__(
         self,
@@ -99,9 +107,8 @@ class Gateway:
 
             base_logger.propagate = False
 
-        self.logger = logging.LoggerAdapter(
-            base_logger, {"gateway_id": self.gateway_id}
-        )
+        base_logger.addFilter(IDFilter(self.gateway_id))
+        self.logger = base_logger
         # ---
 
         self._init_consumer_groups()

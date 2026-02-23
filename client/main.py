@@ -46,6 +46,13 @@ CHUNK_SIZE = 65536  # 64 KB
 LOG_FILE = os.environ.get("LOG_FILE", "/logs/client.log")
 
 # Logger config
+class IDFilter(logging.Filter):
+    def __init__(self, node_id):
+        self.node_id = node_id
+    def filter(self, record):
+        record.node_id = self.node_id
+        return True
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -66,7 +73,7 @@ logger.addHandler(file_handler)
 logger.addHandler(console_handler)
 logger.propagate = False
 
-logger = logging.LoggerAdapter(logger, {"node_id": NODE_ID})
+logger.addFilter(IDFilter(NODE_ID))
 # ---
 
 app = Flask(__name__)
