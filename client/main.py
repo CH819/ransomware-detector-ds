@@ -8,7 +8,7 @@ import logging
 import threading
 import shutil
 from collections import Counter
-from datetime import datetime as dt
+from pythonjsonlogger import jsonlogger
 
 import boto3
 from botocore.client import Config
@@ -43,13 +43,38 @@ APP_PORT = int(os.environ.get("CLIENT_PORT", 7000))
 BACKUP_INTERVAL_SECONDS = int(os.environ.get("BACKUP_INTERVAL", 10))
 
 CHUNK_SIZE = 65536  # 64 KB
+LOG_FILE = os.environ.get("LOG_FILE", "/logs/client.log")
 
-# Logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - CLIENT - %(levelname)s - %(message)s\n",
-)
+# Logger config
+class IDFilter(logging.Filter):
+    def __init__(self, node_id):
+        self.node_id = node_id
+    def filter(self, record):
+        record.node_id = self.node_id
+        return True
+
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+file_handler = logging.FileHandler(LOG_FILE)
+file_handler.setLevel(logging.INFO)
+
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+
+formatter = jsonlogger.JsonFormatter(
+    "%(asctime)s %(levelname)s %(name)s %(message)s %(node_id)s"
+)
+
+file_handler.setFormatter(formatter)
+console_handler.setFormatter(formatter)
+
+logger.addHandler(file_handler)
+logger.addHandler(console_handler)
+logger.propagate = False
+
+logger.addFilter(IDFilter(NODE_ID))
+# ---
 
 app = Flask(__name__)
 
@@ -131,7 +156,7 @@ class FileMonitorHandler(FileSystemEventHandler):
 
     def ping_online(self):
         event = {
-            "timestamp": dt.utcnow().isoformat(),
+            "timestamp": int(time.time() * 1000),
             "node_id": NODE_ID,
             "event_type": "ONLINE",
         }
@@ -161,7 +186,7 @@ class FileMonitorHandler(FileSystemEventHandler):
 
     def send_event(self, file_path, event_type):
         event = {
-            "timestamp": dt.utcnow().isoformat() + "Z",
+            "timestamp": int(time.time() * 1000),
             "node_id": NODE_ID,
             "file_path": file_path,
             "event_type": event_type,
@@ -207,7 +232,7 @@ class FileMonitorHandler(FileSystemEventHandler):
 # Snapshot Logic
 # ======================
 def capture_snapshot(node_id):
-    timestamp = int(time.time())
+    timestamp = int(time.time() * 1000)
     zip_filename = f"snapshot_{node_id}_{timestamp}"
     zip_filepath = os.path.join(TEMP_DIR, zip_filename)
     zip_source = os.path.join(WATCH_PATH, node_id)

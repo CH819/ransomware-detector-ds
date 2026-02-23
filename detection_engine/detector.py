@@ -2,8 +2,9 @@ import redis
 import logging
 import time
 import os
-from datetime import datetime
 from dotenv import load_dotenv
+from pythonjsonlogger import jsonlogger
+
 
 load_dotenv()
 
@@ -15,18 +16,35 @@ STREAM_DETECTOR_OUT = "detector_out"
 
 CONSUMER_GROUP = "detectors_cg"
 
+LOG_FILE = os.environ.get("LOG_FILE", "/logs/detector.log")
+
+
 
 class RansomwareDetector:
     def __init__(self, detector_id=None, redis_host=REDIS_HOST, redis_port=REDIS_PORT):
         self.detector_id = detector_id or f"detector-{os.getpid()}"
         self.redis = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
-        
-        # Standard format, no custom fields
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - DETECTOR - %(levelname)s - %(message)s'
-        )
+
+        # Logger config
         self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(logging.INFO)
+
+        file_handler = logging.FileHandler(LOG_FILE)
+        file_handler.setLevel(logging.INFO)
+
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+
+        formatter = jsonlogger.JsonFormatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+
+        file_handler.setFormatter(formatter)
+        console_handler.setFormatter(formatter)
+
+        self.logger.addHandler(file_handler)
+        self.logger.addHandler(console_handler)
+
+        self.logger.propagate = False
+        # ---
         
         self._join_consumer_group()
         
@@ -99,7 +117,7 @@ class RansomwareDetector:
             "detector_id": self.detector_id,
             "node_id": event.get("node_id"),
             "file_path": event.get("file_path"),
-            "timestamp": event.get("timestamp", datetime.utcnow().isoformat() + "Z"),
+            "timestamp": event.get("timestamp", int(time.time() * 1000)),
             "decision": decision,
             "risk_score": risk_score,
             "risk_level": "HIGH"
@@ -151,7 +169,7 @@ class RansomwareDetector:
                 self.logger.info(f"Detector {self.detector_id} shutting down...")
                 break
             except Exception as e:
-                self.logger.error(f"[{self.detector_id}] Error: {e}")
+                self.logger.error(f"[{self.detector_id}] Error: {e}", exc_info=True)
                 time.sleep(1)
 
 

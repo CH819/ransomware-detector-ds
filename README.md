@@ -7,6 +7,8 @@ Prerequisites:
 
 ### Docker Compose
 
+Rename the .env.template file as .env or copy it into a new file.
+
 Build the images for each service. You can use the commands:
 
 ```

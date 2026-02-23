@@ -5,3 +5,4 @@ watchdog
 flask
 python-dotenv
 waitress
+python-json-logger
