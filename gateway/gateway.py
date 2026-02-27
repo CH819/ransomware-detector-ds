@@ -47,6 +47,7 @@ HEARTBEAT_INTERVAL_SECONDS = 3  # How often to renew leadership
 
 LOG_FILE = os.environ.get("LOG_FILE", "/logs/gateway.log")
 
+
 class NodeStatus(Enum):
     HEALTHY = "healthy"
     SUSPICIOUS = "suspicious"  # backup
@@ -57,6 +58,7 @@ class NodeStatus(Enum):
 class IDFilter(logging.Filter):
     def __init__(self, gateway_id):
         self.gateway_id = gateway_id
+
     def filter(self, record):
         record.gateway_id = self.gateway_id
         return True
@@ -279,7 +281,12 @@ class Gateway:
         )
         self.logger.info(
             f"Setting node status Node {node_id}: {old_status.value} -> {status.value} ({reason})",
-            extra={"node_id": node_id, "old_status": old_status.value, "new_status": status.value, "reason": reason}
+            extra={
+                "node_id": node_id,
+                "old_status": old_status.value,
+                "new_status": status.value,
+                "reason": reason,
+            },
         )
 
     def reset_node(self, node_id: str, reason: str = "recovery_complete"):
@@ -327,7 +334,14 @@ class Gateway:
 
         if not self.is_node_healthy(node_id):
             current = self.get_node_status(node_id).value
-            self.logger.warning(f"Dropping monitor event", extra={"node_ide": node_id, "node_status": current, "file_path": file_path})
+            self.logger.warning(
+                "Dropping monitor event",
+                extra={
+                    "node_ide": node_id,
+                    "node_status": current,
+                    "file_path": file_path,
+                },
+            )
             return {"status": "dropped", "node_id": node_id, "reason": current}
 
         # Store event history in Redis (not local dict)
@@ -370,7 +384,7 @@ class Gateway:
         if decision == "ISOLATE":
             self.set_node_status(node_id, NodeStatus.ISOLATED, "high_risk_detected")
             self.redis.sadd("gateway:pending_backups", node_id)
-            self._stop_backup(node_id)
+            self._isolate_client(node_id)
             self._alert_admin(node_id, file_path, result, "HIGH")
 
         elif decision == "BACKUP":
@@ -469,15 +483,23 @@ class Gateway:
     # HELPERS
     # =========================================================================
 
-    def _stop_backup(self, node_id: str):
-        self.redis.xadd(
-            STREAM_BACKUP_CONTROL,
-            {
-                "command": "STOP_BACKUP",
-                "node_id": node_id,
-                "timestamp": int(time.time()),
-            },
-        )
+    def _isolate_client(self, node_id: str):
+        try:
+            client_response = requests.post(
+                f"{CLIENT_BASE_URL}/isolate",
+                json={"node_id": node_id},
+                timeout=10,
+            )
+            if client_response.status_code != 200:
+                self.logger.error(
+                    f"Failed to isolate node {node_id}: {client_response.status_code} {client_response.text}"
+                )
+            else:
+                self.logger.info(f"Successfully isolated node {node_id}")
+        except requests.RequestException as e:
+            self.logger.error(
+                f"HTTP communication failed when isolating node {node_id}: {e}"
+            )
 
     def _alert_admin(self, node_id: str, file_path: str, result: dict, level: str):
         self.redis.xadd(
