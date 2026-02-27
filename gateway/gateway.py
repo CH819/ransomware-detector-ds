@@ -385,7 +385,6 @@ class Gateway:
             self.set_node_status(node_id, NodeStatus.ISOLATED, "high_risk_detected")
             self.redis.sadd("gateway:pending_backups", node_id)
             self._isolate_client(node_id)
-            self._stop_backup(node_id)
             self._alert_admin(node_id, file_path, result, "HIGH")
 
         elif decision == "BACKUP":
@@ -483,16 +482,6 @@ class Gateway:
     # =========================================================================
     # HELPERS
     # =========================================================================
-
-    def _stop_backup(self, node_id: str):
-        self.redis.xadd(
-            STREAM_BACKUP_CONTROL,
-            {
-                "command": "STOP_BACKUP",
-                "node_id": node_id,
-                "timestamp": int(time.time()),
-            },
-        )
 
     def _isolate_client(self, node_id: str):
         try:
