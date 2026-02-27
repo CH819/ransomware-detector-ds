@@ -45,13 +45,16 @@ BACKUP_INTERVAL_SECONDS = int(os.environ.get("BACKUP_INTERVAL", 10))
 CHUNK_SIZE = 65536  # 64 KB
 LOG_FILE = os.environ.get("LOG_FILE", "/logs/client.log")
 
+
 # Logger config
 class IDFilter(logging.Filter):
     def __init__(self, node_id):
         self.node_id = node_id
+
     def filter(self, record):
         record.node_id = self.node_id
         return True
+
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -91,6 +94,9 @@ s3_client = boto3.client(
 
 # Shared state variable that blocks file monitoring during recovery
 RECOVERY_MODE = threading.Event()
+
+# Shared state variable that stops backups when isolated
+ISOLATE_MODE = threading.Event()
 
 
 # ======================
@@ -300,7 +306,8 @@ def recover_snapshot(node_id: str, snapshot_id: str):
 def periodic_snapshot_worker(interval_seconds: int):
     while True:
         try:
-            capture_snapshot(NODE_ID)
+            if not ISOLATE_MODE.is_set():
+                capture_snapshot(NODE_ID)
         except Exception as e:
             logger.error(f"Could not capture snapshot: {e}")
         time.sleep(interval_seconds)
@@ -331,6 +338,13 @@ def monitor_worker():
 # ======================
 # Flask Routes
 # ======================
+@app.route("/isolate", methods=["POST"])
+def isolate():
+    ISOLATE_MODE.set()
+    logger.warning(f"Node {NODE_ID} was isolated, stopping backups")
+    return jsonify({"status": "success", "node_id": NODE_ID}), 200
+
+
 @app.route("/snapshot", methods=["POST"])
 def snapshot():
     snapshot_id = capture_snapshot(NODE_ID)
@@ -353,6 +367,7 @@ def restore():
 
     try:
         location = recover_snapshot(node_id, snapshot_id)
+        ISOLATE_MODE.clear()
         return jsonify(
             {
                 "status": "success",
