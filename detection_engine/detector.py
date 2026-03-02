@@ -2,6 +2,7 @@ import redis
 import logging
 import time
 import os
+import socket
 from dotenv import load_dotenv
 from pythonjsonlogger import jsonlogger
 
@@ -22,7 +23,11 @@ LOG_FILE = os.environ.get("LOG_FILE", "/logs/detector.log")
 
 class RansomwareDetector:
     def __init__(self, detector_id=None, redis_host=REDIS_HOST, redis_port=REDIS_PORT):
-        self.detector_id = detector_id or f"detector-{os.getpid()}"
+        if detector_id:
+            self.detector_id = detector_id
+        else:
+            hostname = socket.gethostname()
+            self.detector_id = f"detector-{hostname}-{os.getpid()}"
         self.redis = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
 
         # Logger config
@@ -91,14 +96,14 @@ class RansomwareDetector:
         for pat in ransom_patterns:
             if pat in file_lower:
                 indicators.append(f'ransom_pattern:{pat}')
-                risk_score += 2
+                risk_score += 4
                 
         # Extension check
-        encrypted_exts = ['.locked', '.encrypted', '.crypt', '.crypted', '.enc', '.aes']
+        encrypted_exts = ['.locked', '.encrypted', '.crypt', '.crypted', '.enc', '.aes', '.bin']
         for ext in encrypted_exts:
             if file_lower.endswith(ext):
                 indicators.append(f'encrypted_ext:{ext}')
-                risk_score += 2
+                risk_score += 4
         
         # Decision
         if risk_score >= 7:
@@ -169,6 +174,13 @@ class RansomwareDetector:
                 self.logger.info(f"Detector {self.detector_id} shutting down...")
                 break
             except Exception as e:
+                if isinstance(e, redis.ResponseError) and "NOGROUP" in str(e):
+                    self.logger.warning(
+                        f"[{self.detector_id}] Consumer group missing, recreating..."
+                    )
+                    self._join_consumer_group()
+                    time.sleep(0.2)
+                    continue
                 self.logger.error(f"[{self.detector_id}] Error: {e}", exc_info=True)
                 time.sleep(1)
 
