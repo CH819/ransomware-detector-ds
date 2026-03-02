@@ -552,6 +552,8 @@ class Gateway:
                     self.redis.delete(LEADER_KEY)
                 break
             except Exception as e:
+                # Self-heal after Redis restarts/flushes: recreate missing consumer groups
+                # so the gateway can continue processing instead of failing repeatedly.
                 if isinstance(e, redis.ResponseError) and "NOGROUP" in str(e):
                     self.logger.warning("Consumer group missing, recreating...")
                     self._init_consumer_groups()
