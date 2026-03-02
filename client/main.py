@@ -15,6 +15,7 @@ from botocore.client import Config
 import redis
 import psutil
 from watchdog.observers import Observer
+from watchdog.observers.polling import PollingObserver
 from watchdog.events import FileSystemEventHandler
 from flask import Flask, jsonify, request
 from dotenv import load_dotenv
@@ -41,6 +42,7 @@ S3_SECRET_KEY = os.environ.get("S3_SECRET_KEY")
 TEMP_DIR = os.environ.get("TEMP_DIR", "/tmp")
 APP_PORT = int(os.environ.get("CLIENT_PORT", 7000))
 BACKUP_INTERVAL_SECONDS = int(os.environ.get("BACKUP_INTERVAL", 10))
+MONITOR_OBSERVER = os.environ.get("MONITOR_OBSERVER", "polling").strip().lower()
 
 CHUNK_SIZE = 65536  # 64 KB
 LOG_FILE = os.environ.get("LOG_FILE", "/logs/client.log")
@@ -315,12 +317,12 @@ def periodic_snapshot_worker(interval_seconds: int):
 
 def monitor_worker():
     handler = FileMonitorHandler(redis_client, s3_client)
-    observer = Observer()
+    observer = PollingObserver() if MONITOR_OBSERVER == "polling" else Observer()
 
     observer.schedule(handler, WATCH_NODE_PATH, recursive=True)
     observer.start()
 
-    logger.info(f"Monitor started on {WATCH_NODE_PATH}")
+    logger.info(f"Monitor started on {WATCH_NODE_PATH} using {observer.__class__.__name__}")
 
     handler.ping_online()
 
