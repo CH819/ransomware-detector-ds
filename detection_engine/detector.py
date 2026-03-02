@@ -96,14 +96,14 @@ class RansomwareDetector:
         for pat in ransom_patterns:
             if pat in file_lower:
                 indicators.append(f'ransom_pattern:{pat}')
-                risk_score += 4
+                risk_score += 2
                 
         # Extension check
         encrypted_exts = ['.locked', '.encrypted', '.crypt', '.crypted', '.enc', '.aes', '.bin']
         for ext in encrypted_exts:
             if file_lower.endswith(ext):
                 indicators.append(f'encrypted_ext:{ext}')
-                risk_score += 4
+                risk_score += 2
         
         # Decision
         if risk_score >= 7:
