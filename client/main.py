@@ -240,6 +240,10 @@ class FileMonitorHandler(FileSystemEventHandler):
 # Snapshot Logic
 # ======================
 def capture_snapshot(node_id):
+    """
+    Save system snapshot into S3. Name/ID of the snapshot follows convention
+    snapshot_{NODE_ID}_{TIMESTAMP IN MS}.
+    """
     timestamp = int(time.time() * 1000)
     zip_filename = f"snapshot_{node_id}_{timestamp}"
     zip_filepath = os.path.join(TEMP_DIR, zip_filename)
@@ -267,6 +271,10 @@ def capture_snapshot(node_id):
 
 
 def recover_snapshot(node_id: str, snapshot_id: str):
+    """
+    Recover a given snapshot by deleted current data and replacing
+    with the data extracted from snapshot. Directly downloaded from S3.
+    """
     RECOVERY_MODE.set()
     s3_key = f"{node_id}/{snapshot_id}.zip"
     zip_filepath = os.path.join(TEMP_DIR, snapshot_id + ".zip")
