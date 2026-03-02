@@ -57,6 +57,19 @@ def get_timestamp_from_backup_id(backup_id: str):
 
 
 def get_most_recent_clean_snapshot_name(node_id: str, infection_timestamp: int):
+    """
+    Get the most recent clean snapshot name by searching the last clean snapshot
+    saved in S3 before the time of detection.
+    All snapshots saved in S3 are listed according to creation timestamp and then
+    the most recent one before attack is chosen.
+
+    Args:
+        node_id: ID of the node for which the snapshot si requested.
+        infection_timestamp: time at which ransomware attack was detected.
+
+    Returns:
+        most recent clean snapshot name, or None when search fails.
+    """
     try:
         prefix = f"{node_id}/"
 
@@ -103,6 +116,7 @@ def get_most_recent_clean_snapshot_name(node_id: str, infection_timestamp: int):
 
 @app.route("/recover", methods=["POST"])
 def recover():
+    """Endpoint to get the most recent clean snapshot, requested by the Gateway"""
     data = request.get_json()
 
     if not data or "node_id" not in data or "infection_timestamp" not in data:
