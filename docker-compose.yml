@@ -118,7 +118,7 @@ services:
       - default
 
   master:
-    image: chrislusf/seaweedfs
+    image: chrislusf/seaweedfs:4.13
     ports:
       - "9333:9333"
       - "19333:19333"
@@ -127,7 +127,7 @@ services:
     command: "master -ip=master -mdir=/data"
 
   volume1:
-    image: chrislusf/seaweedfs
+    image: chrislusf/seaweedfs:4.13
     ports:
       - "8081:8080"
       - "18081:18080"
@@ -138,7 +138,7 @@ services:
       - master
 
   volume2:
-    image: chrislusf/seaweedfs
+    image: chrislusf/seaweedfs:4.13
     ports:
       - "8082:8080"
       - "18082:18080"
@@ -149,7 +149,7 @@ services:
       - master
 
   filer:
-    image: chrislusf/seaweedfs
+    image: chrislusf/seaweedfs:4.13
     ports:
       - "8888:8888"
       - "18888:18888"
@@ -162,7 +162,7 @@ services:
       - volume2
 
   s3:
-    image: chrislusf/seaweedfs
+    image: chrislusf/seaweedfs:4.13
     ports:
       - "8333:8333"
     command: 's3 -filer="filer:8888"'
@@ -174,7 +174,7 @@ services:
 
   # This container automates the access key and bucket creation
   setup:
-    image: chrislusf/seaweedfs
+    image: chrislusf/seaweedfs:4.13
     entrypoint: /bin/sh
     user: root
     env_file: .env
