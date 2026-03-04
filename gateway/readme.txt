@@ -5,9 +5,7 @@
 ARCHITECTURE OVERVIEW
 ---------------------
 
-The Gateway acts as the central message router, state manager, and coordinator 
-in a distributed ransomware detection system. The Gateway makes all isolation 
-and recovery decisions based on Detector analysis results.
+Central coordinator for distributed ransomware detection with active-passive leader election.
 
 Key Responsibilities:
 - Elect: Active-passive leader election via Redis SET NX EX
@@ -53,366 +51,48 @@ Failover Scenarios:
 3. Network partition: Split-brain prevented by Redis atomicity
 ================================================================================
 
-COMMUNICATION FLOW DIAGRAM
+COMMUNICATION FLOW 
 --------------------------
 
-STEP 0: GATEWAY LEADER ELECTION
-┌─────────┐     Redis SET NX EX       ┌─────────┐
-│Gateway A│ ─────────────────────────>│  Redis  │
-│(startup)│  SET gateway:leader       │         │
-│         │  gateway-A EX 10          │         │
-│         │                           │         │
-│  WINS!  │ ◄─────────────────────────│  OK     │
-│(Active) │                           │         │
-└─────────┘                           └────┬────┘
-                                           │
-┌─────────┐     Redis SET NX EX            │
-│Gateway B│ ──────────────────────────────>│
-│(startup)│  SET gateway:leader            │
-│         │  gateway-B EX 10               │
-│         │                                │
-│  LOSES  │ ◄──────────────────────────────│
-│(Passive)│  (key already exists)          │
-│  Waits  │                                │
-└─────────┘                                │
-     │                                     │
-     │         Key expires after 10s       │
-     │ ◄───────────────────────────────────┘
-     │
-     ▼
-┌─────────┐     Redis SET NX EX
-│Gateway B│ ─────────────────────────> 
-│(retry)  │  SET gateway:leader
-│         │  gateway-B EX 10
-│         │
-│  WINS!  │ ◄─────────────────────────
-│(Active) │  (becomes new leader)
-└─────────┘
-
-
-STEP 1: MONITOR → GATEWAY
-┌─────────┐     file_info (Redis Stream)       ┌─────────┐
-│ Monitor │ ─────────────────────────────────> │ Gateway │
-│ (Client)│  {                                 │         │
-│         │    node_id: "client-1",            │         │
-│         │    file_path: "/doc.doc",          │         │
-│         │    backup_version_id: "v3",   <--  │         │
-│         │    entropy: 7.9                    │         │
-│         │  }                                 │         │
-└─────────┘                                    └────┬────┘
-                                                    │
-STEP 2: GATEWAY → DETECTOR                          │
-┌─────────┐     detector_in (Redis Stream)          │
-│ Gateway │ ────────────────────────────────────────┘
-│         │  (forwards same data)
-│         │  
-└────┬────┘                                        
-     │                                              
-STEP 3: DETECTOR → GATEWAY                          │
-┌─────────┐     detector_out (Redis Stream)         │
-│Detector │ ────────────────────────────────────────┘
-│         │  {
-│         │    decision: "ISOLATE",          
-│         │    infected_backup_id: "v3",      
-│         │    risk_score: 8,
-│         │    indicators: "high_entropy,suspicious_extension",
-│         │    node_id: "client-1",
-│         │    file_path: "/home/user/document.doc"
-│         │  }
-└────┬────┘  
-
-STEP 4A: IF "ISOLATE" → STOP BACKUP SERVICE
-┌─────────┐     backup_control (Redis Stream) ┌───────────┐
-│ Gateway │ ─────────────────────────────────>│   Backup  │
-│         │  {                                │  Service  │
-│         │    command: "STOP_BACKUP",        │           │
-│         │    node_id: "client-1"            │           │
-│         │  }                                └───────────┘
-└────┬────┘                                   
-     │
-STEP 4B: NOTIFY ADMIN (with infected_backup_id)
-     │  ┌─────────┐  admin_alerts (Redis Stream)  ┌───────┐
-     └─>│ Gateway │ ────────────────────────────> │ Admin │
-        │         │ {                             │       │
-        │         │   alert_type: "BACKUP_NEEDED, │       │
-        │         │   threat_level: "HIGH",       │       │
-        │         │   node_id: "client-1",        │       │
-        │         │   file_path: "/doc.doc",      │       │
-        │         │   risk_score: 8               │       │
-        │         │ }                             └───────┘
-        └─────────┘                                     
-                                                         │
-STEP 5: ADMIN INITIATES BACKUP                           │
-┌───────┐     admin_commands (Redis Stream)      ┌─────────┐
-│ Admin │ ──────────────────────────────────────>│ Gateway │
-│       │  {                                     │         │
-│       │    command: "INITIATE_BACKUP",         │         │
-│       │    node_id: "client-1"                 │         │
-│       │  }                                     └────┬────┘
-└───────┘                                             │
-                                                      │
-STEP 6: GATEWAY → RECOVERY MANAGER                    │
-┌─────────┐     recovery_requests (Redis Stream)      │
-│ Gateway │ ──────────────────────────────────────────┘
-│         │  {
-│         │    command: "RECOVER",
-│         │    node_id: "client-1",
-│         │    timestamp: "2025-01-13T10:35:01Z"
-│         │  }
-│         │  
-└─────────┘
-
-STEP 7: RECOVERY MANAGER → GATEWAY
-┌─────────┐     recovery_responses (Redis Stream)
-│Recovery │ ─────────────────────────────────┐
-│ Manager │  {                               │
-│         │    node_id: "client-1",          │
-│         │    backup_location: "s3://...",  │
-│         │    files_to_restore: [...]       │
-│         │  }                               │
-└─────────┘                                  │
-                                             ▼
-STEP 8: GATEWAY → CLIENT
-┌─────────┐     client_notify (Redis Stream)       ┌─────────┐
-│ Gateway │ ──────────────────────────────────────>│ Client  │
-│         │  {                                     │(Monitor)│
-│         │    notification_type: "RECOVERY_INFO", │         │
-│         │    node_id: "client-1",                │         │
-│         │    backup_location: "s3://...",        │         │
-│         │    files_to_restore: [...]             │         │
-│         │  }                                     └─────────┘
-└─────────┘
-     │
-     ▼
-STEP 9: GATEWAY RESETS NODE TO HEALTHY
-┌─────────┐
-│ Gateway │  reset_node(node_id, "recovery_complete")
-│         │  → Sets node_status to HEALTHY
-│         │  → Clears node_backup_info
-│         │  → Removes from pending_backups
-└─────────┘
+  Direction                  | Method                        | Purpose                         |
+| -------------------------- | ----------------------------- | ------------------------------- |
+| Monitor → Gateway          | Redis Stream `file_info`      | File events                     |
+| Gateway → Detector         | Redis Stream `detector_in`    | Analysis requests               |
+| Detector → Gateway         | Redis Stream `detector_out`   | Decisions (ISOLATE/BACKUP/SAFE) |
+| Gateway → Client           | HTTP POST `:7000/isolate`     | Isolate infected node           |
+| Gateway → Admin            | Redis Stream `admin_alerts`   | Threat notifications            |
+| Admin → Gateway            | Redis Stream `admin_commands` | Recovery triggers               |
+| Gateway → Recovery Manager | HTTP POST `:6000/recover`     | Initiate recovery               |
+| Gateway → Client           | HTTP POST `:7000/restore`     | Restore clean snapshot          |
+| Monitor → Gateway          | Redis Stream `ping`           | Heartbeats                      |
 
 ================================================================================
 
-DETAILED COMMUNICATION DESCRIPTION
-----------------------------------
+STATE MANAGEMENT (Redis)
 
-1. MONITOR → GATEWAY (STREAM: file_info)
-   ------------------------------------------------
-   Source: Monitor service running on client machine
-   Purpose: Send file system events for analysis
-   Trigger: File created/modified on client
-   
-   Message Format:
-   {
-       "node_id": "client-1",
-       "file_path": "/home/user/document.doc",
-       "event_type": "FILE_MODIFIED",
-       "entropy": 7.9,
-       "process_name": "chrome",
-       "timestamp": "2025-01-13T10:30:00Z",
-       "backup_version_id": "v20250112-100000"
-   }
-   
-   Gateway Action: 
-   - Check node_status (drop if not HEALTHY)
-   - Store in node_events (last 100 per node)
-   - Forward to Detector via detector_in
-
-2. GATEWAY → DETECTOR (STREAM: detector_in)
-   ------------------------------------------------
-   Source: Gateway (forwarded from Monitor)
-   Destination: Detector service
-   Purpose: Request file analysis
-   
-   Message Format: 
-   {
-       "timestamp": "2025-01-13T10:30:00Z",    // Gateway adds this
-       "node_id": "client-1",
-       "file_path": "/home/user/document.doc",
-       "event_type": "FILE_MODIFIED",
-       "entropy": 7.9,
-       "process_name": "chrome",
-       "backup_version_id": "v20250112-100000"
-   }
-
-3. DETECTOR → GATEWAY (STREAM: detector_out)
-   ------------------------------------------------
-   Source: Detector service after analysis
-   Purpose: Report analysis results and identify infected backup
-   
-   Message Format:
-   {
-       "detector_id": "detector-1",
-       "node_id": "client-1",
-       "file_path": "/home/user/document.doc",
-       "decision": "ISOLATE",                    // "ISOLATE", "BACKUP", or "SAFE"
-       "risk_score": 8,
-       "indicators": "high_entropy,suspicious_extension",
-       "infected_backup_id": "v20250112-100000", 
-       "timestamp": "2025-01-13T10:30:01Z"
-   }
-   
-   Gateway Action: 
-   - If node no longer HEALTHY (race condition): ignore result
-   - If "ISOLATE": 
-     * Set node_status to ISOLATED
-     * Add to pending_backups
-     * Send STOP_BACKUP to Backup Service
-     * Send BACKUP_NEEDED alert to Admin
-   - If "BACKUP":
-     * Set node_status to SUSPICIOUS
-     * Add to pending_backups
-     * Send BACKUP_NEEDED alert to Admin
-   - If "SAFE": no action (node remains HEALTHY)
-
-4. GATEWAY → BACKUP SERVICE (STREAM: backup_control)
-   ------------------------------------------------
-   Source: Gateway (when ISOLATE decision received)
-   Purpose: Stop backing up infected node to prevent backup contamination
-   
-   Message Format:
-   {
-       "command": "STOP_BACKUP",
-       "node_id": "client-1",
-       "timestamp": "2025-01-13T10:30:02Z"
-   }
-   
-   Backup Service Action: Pause all backup operations for this node
-
-5. GATEWAY → ADMIN (STREAM: admin_alerts)
-   ------------------------------------------------
-   Source: Gateway (when backup is needed)
-   Purpose: Notify administrator that manual intervention required
-   
-   Message Format:
-   {
-       "alert_type": "BACKUP_NEEDED",
-       "node_id": "client-1",
-       "file_path": "/home/user/document.doc",
-       "threat_level": "HIGH",                   // "HIGH" if ISOLATE, "MEDIUM" if BACKUP
-       "risk_score": 8,
-       "timestamp": "2025-01-13T10:30:02Z"
-   }
-   
-   Admin Action: Review alert, log into system, send INITIATE_BACKUP command
-
-6. ADMIN → GATEWAY (STREAM: admin_commands)
-   ------------------------------------------------
-   Source: Admin interface (web UI or CLI)
-   Purpose: Trigger recovery process
-   
-   Message Format:
-   {
-       "command": "INITIATE_BACKUP",
-       "node_id": "client-1",
-       "timestamp": "2025-01-13T10:35:00Z"
-   }
-   
-   Gateway Action: 
-   - Verify node_id is in pending_backups
-   - Retrieve infected_backup_id from node_backup_info
-   - Set node_status to RECOVERING
-   - Forward to Recovery Manager via recovery_requests
-
-7. GATEWAY → RECOVERY MANAGER (STREAM: recovery_requests)
-   ------------------------------------------------
-   Source: Gateway (after admin initiates recovery)
-   Purpose: Pass infected_backup_id to Recovery Manager
-   
-   Message Format:
-   {
-       "command": "RECOVER",
-       "node_id": "client-1",
-       "infected_backup_id": "v20250112-100000",  // <-- RETRIEVED FROM node_backup_info
-       "timestamp": "2025-01-13T10:35:01Z"
-   }
-   
-   Recovery Manager Action: 
-   - Receives infected_backup_id "v20250112-100000" (the infected backup)
-   - Looks up backup history
-   - Decides to restore from backup BEFORE this one (e.g., "v20250111-100000")
-   - Performs recovery
-   - Responds via recovery_responses
-
-8. RECOVERY MANAGER → GATEWAY (STREAM: recovery_responses)
-   ------------------------------------------------
-   Source: Recovery Manager after completing recovery
-   Purpose: Report recovery status
-   
-   Message Format:
-   {
-       "node_id": "client-1",
-       "backup_location": "s3://backups/client-1/v20250111-100000/",
-       "files_to_restore": [
-           "document.doc",
-           "spreadsheet.xlsx"
-       ],
-       "timestamp": "2025-01-13T10:35:05Z"
-   }
-   
-   Gateway Action: 
-   - Forward to Client via client_notify
-   - Reset node to HEALTHY (clear node_backup_info, pending_backups)
-
-9. GATEWAY → CLIENT (STREAM: client_notify)
-   ------------------------------------------------
-   Source: Gateway (final step)
-   Purpose: Deliver recovery completion to client
-   
-   Message Format:
-   {
-       "notification_type": "RECOVERY_INFO",
-       "node_id": "client-1",
-       "backup_location": "s3://backups/client-1/v20250111-100000/",
-       "files_to_restore": [
-           "document.doc",
-           "spreadsheet.xlsx"
-       ],
-       "timestamp": "2025-01-13T10:35:06Z"
-   }
-   
-   Client Action: Confirm recovery, resume normal operations
-
-10. GATEWAY INTERNAL: RESET NODE
-    ------------------------------------------------
-    After sending recovery info to client, Gateway automatically resets node:
-    
-    - Set node_status[node_id] = NodeStatus.HEALTHY
-    - Remove node_id from pending_backups
-    - Delete node_backup_info[node_id]
-    - Log: "Node {node_id} reset to HEALTHY (recovery_complete)"
+| Key                           | Type             | Description                                          |
+| ----------------------------- | ---------------- | ---------------------------------------------------- |
+| `gateway:leader`              | String (TTL 10s) | Active gateway ID                                    |
+| `gateway:node_status`         | Hash             | node\_id → HEALTHY\|SUSPICIOUS\|ISOLATED\|RECOVERING |
+| `gateway:pending_backups`     | Set              | Nodes awaiting recovery                              |
+| `gateway:infection_timestamp` | Hash             | node\_id → infection time                            |
+| `gateway:events:{node_id}`    | List (trimmed)   | Last 100 events per node                             |
+| `gateway:status_history`      | Stream           | Status change audit log                              |
 
 ================================================================================
 
-GATEWAY INTERNAL STATE MANAGEMENT
----------------------------------
+DECISION HANDLING
+-----------------
 
-The Gateway maintains state in Redis for shared access across active-passive instances:
+| Detector Decision | Gateway Action                                              |
+|-------------------|-------------------------------------------------------------|
+| ISOLATE           | Set ISOLATED, HTTP POST isolate to client, alert admin HIGH |
+| BACKUP            | Set SUSPICIOUS, alert admin MEDIUM                          |
+| SAFE              | No action (node remains HEALTHY)                            |
 
-1. gateway:leader (string with TTL)
-   - Value: "gateway-A" or "gateway-B"
-   - Auto-expires after 10 seconds if not renewed
-   
-2. gateway:node_status (hash)
-   - Key: node_id, Value: HEALTHY|SUSPICIOUS|ISOLATED|RECOVERING
-   
-3. gateway:pending_backups (set)
-   - node_ids waiting for admin to initiate backup
-   
-4. gateway:node_backup_info (hash)
-   - Key: node_id, Value: {"infected_backup_id": str}
-   
-5. gateway:events:{node_id} (list, trimmed to 100)
-   - Last 100 events per node for debugging
+==================================================================================
 
-Local cache (cleared on failover):
-- _local_node_status_cache: temporary read cache
-- _cache_lock: thread safety for cache access
-
-================================================================================
-
-GATEWAY STATE MACHINE
+Node STATE MACHINE
 ---------------------
 
 Node Status Transitions:
@@ -420,31 +100,50 @@ Node Status Transitions:
                          ┌─────────────┐
             ┌─────────── │   HEALTHY   │◄────────────────────────┐
             │            └──────┬──────┘                         │
-            │                   │ Monitor sends file             │
-            │                   │ Gateway filters (is_healthy?)  │
-            │                   ▼                                │
-            │            ┌─────────────┐                         │
-            │       ┌─── │  SUSPICIOUS │◄─────────────────────┐  │
-            │       │    └──────┬──────┘                      │  │
-            │       │           │ Detector says BACKUP        │  │
-            │       │           ▼                             │  │
-            │       │    ┌─────────────┐   Admin INITIATE     │  │
-            │       └───►│   ISOLATED  │◄──BACKUP command─────┘  │
-            │            └──────┬──────┘   (recovery starts)     │
-            │                   │ Detector says ISOLATE          │
-            │                   ▼                                │
-            │            ┌─────────────┐                         │
-            └───────────►│  RECOVERING │─────────────────────────┘
-                         └──────┬──────┘   Recovery Manager responds
-                                │
-                                ▼
-                         ┌─────────────┐
-                         │   HEALTHY   │ (automatic reset after
-                         │   (reset)   │  client notification)
-                         └─────────────┘
+            │                   │                                │
+            │    ┌──────────────┼──────────────┐                 │
+            │    │              │              │                 │
+            │    ▼              ▼              │                 │
+            │ ┌────────┐   ┌──────────┐        │                 │
+            │ │BACKUP  │   │ ISOLATE  │        │                 │
+            │ │(Susp.) │   │(Isolate) │        │                 │
+            │ └───┬────┘   └────┬─────┘        │                 │
+            │     │             │              │                 │
+            │     ▼             ▼              │                 │
+            │ ┌──────────┐ ┌──────────┐        │                 │
+            └►│SUSPICIOUS│ │ ISOLATED │        │                 │
+              └───┬──────┘ └────┬─────┘        │                 │
+                  │             │              │                 │
+                  │   Admin: INITIATE_BACKUP   │                 │
+                  │             │              │                 │
+                  │             ▼              │                 │
+                  │      ┌──────────┐          │                 │
+                  └─────►│RECOVERING│──────────┘                 │
+                         └──────────┘   (auto reset after restore)
 
 
+Transitions:
+- HEALTHY → SUSPICIOUS: Detector returns BACKUP
+- HEALTHY → ISOLATED: Detector returns ISOLATE  
+- ISOLATED → RECOVERING: Admin sends INITIATE_BACKUP
+- RECOVERING → HEALTHY: Recovery complete (auto)
+- SUSPICIOUS → RECOVERING: Admin sends INITIATE_BACKUP
 ================================================================================
+
+RECOVERY FLOW
+-------------
+
+1. Admin sends INITIATE_BACKUP via admin_commands stream
+2. Gateway verifies node is in pending_backups set
+3. Gateway sets node status to RECOVERING
+4. Gateway HTTP POST to Recovery Manager (:6000/recover)
+   - Sends node_id and infection_timestamp
+5. Recovery Manager returns clean snapshot_id
+6. Gateway HTTP POST to Client (:7000/restore)
+   - Sends node_id and snapshot_id
+7. Gateway resets node to HEALTHY
+   - Clears pending_backups, infection_timestamp
+   - Logs recovery completion
 
 SCALABILITY FEATURES
 --------------------
