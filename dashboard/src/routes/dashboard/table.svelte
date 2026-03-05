@@ -7,6 +7,7 @@
 		type ColumnDef,
 		type ColumnFiltersState,
 		type PaginationState,
+		type Row,
 		type RowSelectionState,
 		type SortingState,
 		getCoreRowModel,
@@ -19,9 +20,21 @@
 		data: TData[]
 		columns: ColumnDef<TData, TValue>[]
 		disableSearch?: boolean
+		selectedRows?: TData[]
+		enableRowSelection?: boolean | ((row: Row<TData>) => boolean)
+		onRecoverSelected?: () => void
+		recoverPending?: boolean
 	}
 
-	let { data, columns, disableSearch = false }: DataTableProps<TData, TValue> = $props()
+	let {
+		data,
+		columns,
+		disableSearch = false,
+		selectedRows = $bindable([]),
+		enableRowSelection = true,
+		onRecoverSelected,
+		recoverPending = false
+	}: DataTableProps<TData, TValue> = $props()
 
 	let pagination = $state<PaginationState>({ pageIndex: 0, pageSize: 10 })
 	let sorting = $state<SortingState>([])
@@ -34,6 +47,9 @@
 		},
 		// svelte-ignore state_referenced_locally
 		columns,
+		get enableRowSelection() {
+			return enableRowSelection
+		},
 		getCoreRowModel: getCoreRowModel(),
 		getPaginationRowModel: getPaginationRowModel(),
 		getSortedRowModel: getSortedRowModel(),
@@ -81,11 +97,15 @@
 			}
 		}
 	})
+
+	$effect(() => {
+		selectedRows = table.getSelectedRowModel().rows.map((row) => row.original)
+	})
 </script>
 
 <div class="flex flex-col gap-3">
 	{#if !disableSearch}
-		<div class="flex items-center">
+		<div class="flex items-center justify-between gap-2">
 			<Input
 				placeholder="Filter items..."
 				value={(table.getColumn('id')?.getFilterValue() as string) ?? ''}
@@ -97,6 +117,18 @@
 				}}
 				class="max-w-sm"
 			/>
+			{#if onRecoverSelected && selectedRows.length > 0}
+				<Button
+					class="h-full"
+					disabled={recoverPending}
+					onclick={() => {
+						onRecoverSelected?.()
+						table.resetRowSelection()
+					}}
+				>
+					Recover selected ({selectedRows.length})
+				</Button>
+			{/if}
 		</div>
 	{/if}
 

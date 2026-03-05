@@ -48,6 +48,14 @@
 		recover.mutate({ id: nodeId })
 	}
 
+	let selectedNodes = $state<Node[]>([])
+
+	const handleRecoverSelected = () => {
+		for (const node of selectedNodes) {
+			recover.mutate({ id: node.id })
+		}
+	}
+
 	export const columns: ColumnDef<Node>[] = [
 		{
 			id: 'select',
@@ -125,7 +133,16 @@
 		{:else if nodes.isError}
 			<p>Error: {nodes.error?.message}</p>
 		{:else if nodes.isSuccess}
-			<Table {columns} data={nodes.data} />
+			<Table
+				{columns}
+				data={nodes.data}
+				bind:selectedRows={selectedNodes}
+				onRecoverSelected={handleRecoverSelected}
+				recoverPending={recover.isPending}
+				enableRowSelection={(row) =>
+					row.original.status !== NodeStatus.HEALTHY &&
+					row.original.status !== NodeStatus.RECOVERING}
+			/>
 		{/if}
 	</div>
 </div>
